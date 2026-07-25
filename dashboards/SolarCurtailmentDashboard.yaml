@@ -157,6 +157,8 @@ views:
                 name: Export Price ($/kWh)
               - entity: sensor.power_sync_grid_power
                 name: Grid Power (− = exporting)
+              - entity: sensor.grid_power_smoothed
+                name: Grid Power (smoothed — loop input)
               - entity: sensor.power_sync_battery_level
                 name: Battery SOC
           - type: entities

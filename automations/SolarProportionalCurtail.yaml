@@ -48,11 +48,11 @@ actions:
               err: "{{ (grid - target) + ([0, bat] | max) }}"
               # step proportional to the error (%/kW = 15), capped 1-20%.
               step: "{{ [20, [1, (err | abs) * 15] | max] | min }}"
-              # Deadband 0.1 kW (compromise: tighter tracking than 0.15, still
-              # rides above raw CT noise thanks to the 30 s grid smoothing).
+              # Deadband 0.05 kW — tight tracking; the 30 s grid smoothing keeps
+              # noise well below this so it doesn't hunt.
               newlimit: >-
-                {% if err > 0.1 %}{{ [100, (limit + step)] | min }}
-                {% elif err < -0.1 %}{{ [0, (limit - step)] | max }}
+                {% if err > 0.05 %}{{ [100, (limit + step)] | min }}
+                {% elif err < -0.05 %}{{ [0, (limit - step)] | max }}
                 {% else %}{{ limit }}{% endif %}
           - action: input_number.set_value
             target:
