@@ -49,7 +49,8 @@ actions:
               # step proportional to the error (%/kW = 15), capped 1-20%.
               step: "{{ [20, [1, (err | abs) * 15] | max] | min }}"
               # Deadband 0.05 kW — tight tracking; the 30 s grid smoothing keeps
-              # noise well below this so it doesn't hunt.
+              # noise well below this so it doesn't hunt. Confirmed good with
+              # target = 0 (zero export): tracks cleanly without excessive jitter.
               newlimit: >-
                 {% if err > 0.05 %}{{ [100, (limit + step)] | min }}
                 {% elif err < -0.05 %}{{ [0, (limit - step)] | max }}

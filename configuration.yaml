@@ -450,6 +450,9 @@ input_number:
     # No 'initial:' — HA restores the last value you set via the dashboard
     # across restarts. Setting 'initial:' here would force a reset on every
     # HA restart and clobber any change you made in the UI.
+    # TUNING: target = 0 (zero export). With the 30 s grid smoothing and the
+    # 0.05 kW deadband in SolarProportionalCurtail.yaml, this tracks cleanly
+    # without excessive jitter. Confirmed good in operation.
     unit_of_measurement: "kW"
     icon: mdi:transmission-tower
 
