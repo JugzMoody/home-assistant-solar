@@ -1,0 +1,73 @@
+title: Logging
+views:
+  # ================================================================
+  # Activity Log — HACS custom:multiple-logbook-card
+  # Requires "logbook-card" (royto/logbook-card) v2+ from HACS.
+  # hidden_state is a PER-ENTITY option (not top-level).
+  # ================================================================
+  - title: Activity Log
+    path: activity-log
+    icon: mdi:clipboard-text-clock
+    type: sections
+    max_columns: 3
+    sections:
+      # ---------- Curtailment & writes ----------
+      - type: grid
+        cards:
+          - type: markdown
+            content: >
+              ## Curtailment & Writes
+              `unavailable`/`unknown` filtered per entity, newest first,
+              incl. Hard Curtail `logbook.log` entries.
+          - type: custom:multiple-logbook-card
+            title: Curtailment Activity
+            max_items: 30
+            desc: true
+            entities:
+              - entity: input_boolean.manual_full_curtail
+                hidden_state: [unavailable, unknown]
+              - entity: binary_sensor.fronius_curtailment_active
+                hidden_state: [unavailable, unknown]
+              - entity: binary_sensor.sungrow_curtailment_active
+                hidden_state: [unavailable, unknown]
+              - entity: binary_sensor.sungrow_power_limit_enabled
+                hidden_state: [unavailable, unknown]
+              - entity: sensor.power_sync_grid_status
+                hidden_state: [unavailable, unknown]
+      # ---------- PowerSync battery commands ----------
+      - type: grid
+        cards:
+          - type: markdown
+            content: >
+              ## PowerSync Battery Commands
+              Mode / reserve / optimizer state changes, filtered.
+          - type: custom:multiple-logbook-card
+            title: Battery Commands
+            max_items: 30
+            desc: true
+            entities:
+              # Confirm these entity_ids in Developer Tools → States.
+              - entity: select.power_sync_operation_mode
+                hidden_state: [unavailable, unknown]
+              - entity: number.power_sync_backup_reserve
+                hidden_state: [unavailable, unknown]
+              - entity: sensor.power_sync_optimization_status
+                hidden_state: [unavailable, unknown]
+      # ---------- Powerwall health + state timeline ----------
+      - type: grid
+        cards:
+          - type: markdown
+            content: >
+              ## Powerwall Health
+              Gateway alert / fault / pairing changes, filtered.
+          - type: custom:multiple-logbook-card
+            title: Powerwall Health
+            max_items: 30
+            desc: true
+            entities:
+              - entity: binary_sensor.powerwall_fault_present
+                hidden_state: [unavailable, unknown]
+              - entity: sensor.power_sync_pw_active_alerts
+                hidden_state: [unavailable, unknown]
+              - entity: binary_sensor.power_sync_powerwall_local_paired
+                hidden_state: [unavailable, unknown]

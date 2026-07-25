@@ -1,0 +1,207 @@
+title: Solcast
+views:
+  - title: Solar Forecast
+    path: solar-forecast
+    icon: mdi:weather-sunny
+    # panel view = the single root card fills the full page width, so the
+    # charts are as wide as possible (much wider than a sections column).
+    panel: true
+    cards:
+      - type: vertical-stack
+        cards:
+          # ======================= TODAY =======================
+          - type: entities
+            title: Today Summary
+            entities:
+              # Confirm these entity_ids in Developer Tools → States
+              # (defaults for the BJReplay/ha-solcast-solar integration).
+              - entity: sensor.solcast_pv_forecast_forecast_today
+                name: Forecast Today (total)
+              - entity: sensor.solcast_pv_forecast_forecast_remaining_today
+                name: Remaining Today
+              - entity: sensor.solcast_pv_forecast_peak_forecast_today
+                name: Peak Power Today
+              - entity: sensor.solcast_pv_forecast_peak_time_today
+                name: Peak Time Today
+              - type: divider
+              - entity: sensor.solar_expected_so_far
+                name: Expected So Far
+              - entity: sensor.power_sync_daily_solar_energy
+                name: Generated So Far
+              - entity: sensor.solar_tracking_vs_forecast
+                name: Tracking vs Forecast (+ = ahead)
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Today — Forecast vs Actual (kW)
+            graph_span: 24h
+            span:
+              start: day
+            now:
+              show: true
+              label: Now
+            apex_config:
+              chart:
+                height: 420
+            yaxis:
+              - min: 0
+                apex_config:
+                  title:
+                    text: kW
+            series:
+              - entity: sensor.solcast_pv_forecast_forecast_today
+                name: Expected (P50)
+                show:
+                  legend_value: false
+                type: area
+                opacity: 0.3
+                stroke_width: 2
+                color: "#f9a825"
+                data_generator: |
+                  return (entity.attributes.detailedForecast || []).map(e =>
+                    [ new Date(e.period_start).getTime(), e.pv_estimate ]);
+              - entity: sensor.solcast_pv_forecast_forecast_today
+                name: P90 (clearer)
+                show:
+                  legend_value: false
+                type: line
+                stroke_width: 1
+                color: "#66bb6a"
+                data_generator: |
+                  return (entity.attributes.detailedForecast || []).map(e =>
+                    [ new Date(e.period_start).getTime(), e.pv_estimate90 ]);
+              - entity: sensor.solcast_pv_forecast_forecast_today
+                name: P10 (cloudier)
+                show:
+                  legend_value: false
+                type: line
+                stroke_width: 1
+                color: "#ef5350"
+                data_generator: |
+                  return (entity.attributes.detailedForecast || []).map(e =>
+                    [ new Date(e.period_start).getTime(), e.pv_estimate10 ]);
+              # Combined actual production so far today (W -> kW).
+              - entity: sensor.total_solar_power
+                name: Actual (site)
+                type: line
+                stroke_width: 2
+                color: "#1e88e5"
+                unit: kW
+                transform: "return x / 1000;"
+          # ======================= TOMORROW =======================
+          - type: entities
+            title: Tomorrow Summary
+            entities:
+              - entity: sensor.solcast_pv_forecast_forecast_tomorrow
+                name: Forecast Tomorrow (total)
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Tomorrow — Forecast (kW)
+            graph_span: 24h
+            span:
+              start: day
+              offset: +1d
+            apex_config:
+              chart:
+                height: 420
+            yaxis:
+              - min: 0
+                apex_config:
+                  title:
+                    text: kW
+            series:
+              - entity: sensor.solcast_pv_forecast_forecast_tomorrow
+                name: Expected (P50)
+                show:
+                  legend_value: false
+                type: area
+                opacity: 0.3
+                stroke_width: 2
+                color: "#f9a825"
+                data_generator: |
+                  return (entity.attributes.detailedForecast || []).map(e =>
+                    [ new Date(e.period_start).getTime(), e.pv_estimate ]);
+              - entity: sensor.solcast_pv_forecast_forecast_tomorrow
+                name: P90 (clearer)
+                show:
+                  legend_value: false
+                type: line
+                stroke_width: 1
+                color: "#66bb6a"
+                data_generator: |
+                  return (entity.attributes.detailedForecast || []).map(e =>
+                    [ new Date(e.period_start).getTime(), e.pv_estimate90 ]);
+              - entity: sensor.solcast_pv_forecast_forecast_tomorrow
+                name: P10 (cloudier)
+                show:
+                  legend_value: false
+                type: line
+                stroke_width: 1
+                color: "#ef5350"
+                data_generator: |
+                  return (entity.attributes.detailedForecast || []).map(e =>
+                    [ new Date(e.period_start).getTime(), e.pv_estimate10 ]);
+
+  # ================================================================
+  # PER-INVERTER HEALTH (DAILY) — each inverter's energy today vs its
+  # site's Solcast daily forecast. Per-site sensors only expose DAILY totals
+  # (no half-hourly detail), so this is an END-OF-DAY comparison, not intraday.
+  # Fronius = East array, Sungrow = West array.
+  #
+  # ⚠️ CONFIRM the per-site forecast entity_ids hold TODAY's forecast total
+  #    (kWh) — Developer Tools → States. Adjust the names if they differ.
+  #
+  # Reading it (best judged near end of a CLEAR day, throttle flag off):
+  #   • Generated ≈ Forecast  -> healthy; the 80% age factor is about right.
+  #   • Generated << Forecast -> extra loss (degradation/soiling) OR throttling
+  #     (check the Autonomous Throttle flag + grid-voltage history).
+  #   • Generated  > Forecast -> 80% factor too pessimistic; raise it in Solcast.
+  # ================================================================
+  - title: Per-Inverter Health
+    path: inverter-health
+    icon: mdi:solar-panel
+    type: sections
+    max_columns: 2
+    sections:
+      # ---------------- Fronius (East) ----------------
+      - type: grid
+        cards:
+          - type: entities
+            title: Fronius (East)
+            state_color: true
+            entities:
+              # CONFIRM this holds the East daily forecast total (kWh):
+              - entity: sensor.solar_wall_solcast_pv_forecast_home_east
+                name: Forecast Today (East)
+              - entity: sensor.fronius_energy_today
+                name: Generated Today
+              - type: divider
+              - entity: binary_sensor.fronius_autonomous_throttle
+                name: Autonomous Throttle (not us)
+              - entity: sensor.fronius_grid_voltage
+                name: Grid Voltage
+          - type: markdown
+            content: >
+              {% set fc = states('sensor.solar_wall_solcast_pv_forecast_home_east') | float(0) %}
+              {% set act = states('sensor.fronius_energy_today') | float(0) %}
+              ### Fronius tracking: {% if fc >= 0.5 %}{{ ((act - fc) / fc * 100) | round(0) }}%{% else %}n/a yet{% endif %}
+              (+ = ahead of the 80%-adjusted East forecast)
+      # ---------------- Sungrow (West) ----------------
+      - type: grid
+        cards:
+          - type: entities
+            title: Sungrow (West)
+            state_color: true
+            entities:
+              # CONFIRM this holds the West daily forecast total (kWh):
+              - entity: sensor.solar_wall_solcast_pv_forecast_home_west
+                name: Forecast Today (West)
+              - entity: sensor.sungrow_energy_today
+                name: Generated Today
+          - type: markdown
+            content: >
+              {% set fc = states('sensor.solar_wall_solcast_pv_forecast_home_west') | float(0) %}
+              {% set act = states('sensor.sungrow_energy_today') | float(0) %}
+              ### Sungrow tracking: {% if fc >= 0.5 %}{{ ((act - fc) / fc * 100) | round(0) }}%{% else %}n/a yet{% endif %}
+              (+ = ahead of the West forecast)

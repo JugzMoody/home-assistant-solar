@@ -1,0 +1,185 @@
+title: Solar Curtailment
+views:
+  - title: Curtailment
+    path: curtailment
+    icon: mdi:solar-power-variant
+    type: sections
+    max_columns: 3
+    sections:
+      # ============================================================
+      # COLUMN 1 — status tiles + gauges
+      # ============================================================
+      - type: grid
+        cards:
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: tile
+                entity: sensor.power_sync_grid_status
+                name: Grid Connection
+                color: green
+              - type: tile
+                entity: input_boolean.manual_full_curtail
+                name: Manual Full Curtail
+                color: red
+              - type: tile
+                entity: binary_sensor.fronius_curtailment_active
+                name: Fronius Curtailed
+                color: red
+              - type: tile
+                entity: binary_sensor.sungrow_curtailment_active
+                name: Sungrow Curtailed
+                color: red
+              - type: tile
+                entity: sensor.power_sync_solar_curtailment
+                name: PowerSync DC Curtailment
+              - type: tile
+                entity: binary_sensor.sungrow_power_limit_enabled
+                name: Sungrow Limiter Armed
+                color: amber
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: gauge
+                entity: sensor.fronius_power_limit
+                name: Fronius Limit
+                min: 0
+                max: 100
+                needle: true
+                severity:
+                  red: 0
+                  yellow: 1
+                  green: 100
+              - type: gauge
+                entity: sensor.sungrow_power_limit
+                name: Sungrow Limit
+                min: 0
+                max: 100
+                needle: true
+                severity:
+                  red: 0
+                  yellow: 1
+                  green: 100
+              - type: gauge
+                entity: sensor.fronius_grid_frequency
+                name: Fronius Hz
+                min: 49
+                max: 52
+                needle: true
+                severity:
+                  green: 49
+                  yellow: 50.2
+                  red: 50.5
+              - type: gauge
+                entity: sensor.sungrow_grid_frequency
+                name: Sungrow Hz
+                min: 49
+                max: 52
+                needle: true
+                severity:
+                  green: 49
+                  yellow: 50.2
+                  red: 50.5
+              - type: gauge
+                entity: sensor.fronius_output_percent
+                name: Fronius Output
+                min: 0
+                max: 100
+                needle: true
+              - type: gauge
+                entity: sensor.sungrow_output_percent
+                name: Sungrow Output
+                min: 0
+                max: 100
+                needle: true
+          # Actual instantaneous output (W), large + centered, under the dials.
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              # Centering needs the card-mod HACS plugin (HA strips inline
+              # styles from markdown). Markdown '#' gives the large text; the
+              # card_mod CSS centers it (and is ignored harmlessly if card-mod
+              # isn't installed — text just stays left-aligned).
+              - type: markdown
+                content: |
+                  Fronius Output
+
+                  # {{ states('sensor.fronius_live_ac_power') }} W
+                card_mod:
+                  style: |
+                    ha-card {
+                      text-align: center;
+                    }
+              - type: markdown
+                content: |
+                  Sungrow Output
+
+                  # {{ states('sensor.sungrow_live_power_output') }} W
+                card_mod:
+                  style: |
+                    ha-card {
+                      text-align: center;
+                    }
+      # ============================================================
+      # COLUMN 2 — State Timeline
+      # ============================================================
+      - type: grid
+        cards:
+          - type: history-graph
+            title: State Timeline (24h)
+            hours_to_show: 24
+            entities:
+              - entity: input_boolean.manual_full_curtail
+              - entity: binary_sensor.fronius_curtailment_active
+              - entity: binary_sensor.sungrow_curtailment_active
+              - entity: sensor.power_sync_battery_level
+                name: Battery SOC (%)
+              - entity: sensor.export_price_cents
+                name: Export Price (c/kWh)
+      # ============================================================
+      # COLUMN 3 — everything else
+      # ============================================================
+      - type: grid
+        cards:
+          - type: entities
+            title: Curtailment & Live Values
+            state_color: true
+            entities:
+              - entity: input_number.solar_curtail_limit
+                name: Commanded Limit
+              - entity: input_number.solar_curtail_target_kw
+                name: Grid Target (− = allow export)
+              - type: divider
+              - entity: sensor.power_sync_current_export_price
+                name: Export Price ($/kWh)
+              - entity: sensor.power_sync_grid_power
+                name: Grid Power (− = exporting)
+              - entity: sensor.power_sync_battery_level
+                name: Battery SOC
+          - type: entities
+            title: Diagnostics
+            entities:
+              - entity: sensor.fronius_operating_state
+                name: Fronius Operating State
+              - entity: binary_sensor.fronius_autonomous_throttle
+                name: Autonomous Throttle (not us)
+              - entity: sensor.fronius_grid_voltage
+                name: Fronius Grid Voltage
+              - entity: sensor.sungrow_operating_state
+                name: Sungrow Operating State
+          - type: entities
+            title: Powerwall Health (local TEDAPI)
+            state_color: true
+            entities:
+              - entity: binary_sensor.powerwall_fault_present
+                name: Fault Present (severity-tagged)
+              - entity: sensor.powerwall_actionable_alerts
+                name: Actionable Alerts
+              - entity: sensor.power_sync_pw_active_alerts
+                name: All Gateway Alerts (mostly info)
+              # Optional — confirm this entity_id in Developer Tools → States:
+              - entity: binary_sensor.power_sync_powerwall_local_paired
+                name: Local Control Paired

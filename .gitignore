@@ -1,0 +1,17 @@
+# --- Home Assistant secrets & runtime (never commit these) ---
+secrets.yaml
+.storage/
+*.db
+*.db-*
+*.log
+home-assistant.log*
+*.pem
+*.key
+token*
+.cloud/
+tts/
+deps/
+# Editor / OS noise
+.DS_Store
+Thumbs.db
+.vscode/

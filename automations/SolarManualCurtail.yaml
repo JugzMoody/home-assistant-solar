@@ -1,0 +1,86 @@
+alias: Manual full solar curtailment (emergency override)
+description: >-
+  Emergency manual override. Turning input_boolean.manual_full_curtail ON forces
+  BOTH inverters to 0% immediately; turning it OFF restores 100%. The
+  proportional curtailment loop yields while this is ON (its condition checks
+  this boolean), so the two never fight the inverter limit registers.
+triggers:
+  - trigger: state
+    entity_id: input_boolean.manual_full_curtail
+    to: "on"
+    id: force_curtail
+  - trigger: state
+    entity_id: input_boolean.manual_full_curtail
+    to: "off"
+    id: release
+mode: single
+actions:
+  - choose:
+      # ---------------- FORCE 0% ----------------
+      - conditions:
+          - condition: trigger
+            id: force_curtail
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.solar_curtail_limit
+            data:
+              value: 0
+          - action: modbus.write_register
+            data:
+              hub: fronius_inverter
+              slave: 1
+              address: 40232        # WMaxLimPct = 0%
+              value: 0
+          - action: modbus.write_register
+            data:
+              hub: fronius_inverter
+              slave: 1
+              address: 40234        # RvrtTms = 0 (never auto-revert)
+              value: 0
+          - action: modbus.write_register
+            data:
+              hub: fronius_inverter
+              slave: 1
+              address: 40236        # WMaxLim_Ena = 1
+              value: 1
+          - action: modbus.write_register
+            data:
+              hub: sungrow_inverter
+              slave: 1
+              address: 5007         # ratio = 0%
+              value: 0
+          - action: modbus.write_register
+            data:
+              hub: sungrow_inverter
+              slave: 1
+              address: 5006         # limiter enable
+              value: 170
+      # ---------------- RESTORE 100% ----------------
+      - conditions:
+          - condition: trigger
+            id: release
+        sequence:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.solar_curtail_limit
+            data:
+              value: 100
+          - action: modbus.write_register
+            data:
+              hub: fronius_inverter
+              slave: 1
+              address: 40232        # WMaxLimPct = 100%
+              value: 10000
+          - action: modbus.write_register
+            data:
+              hub: fronius_inverter
+              slave: 1
+              address: 40236        # WMaxLim_Ena = 0 (disable override)
+              value: 0
+          - action: modbus.write_register
+            data:
+              hub: sungrow_inverter
+              slave: 1
+              address: 5007         # ratio = 100%
+              value: 1000
