@@ -19,25 +19,58 @@ views:
                 entity: sensor.power_sync_grid_status
                 name: Grid Connection
                 color: green
+                # State is text: "Active" (on-grid) or "Off-Grid" (islanded).
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: {{ 'rgba(76,175,80,0.10)' if is_state(config.entity, 'Active') else 'rgba(244,67,54,0.30)' }};
+                    }
               - type: tile
                 entity: input_boolean.manual_full_curtail
                 name: Manual Full Curtail
                 color: red
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: {{ 'rgba(244,67,54,0.28)' if is_state(config.entity, 'on') else 'rgba(76,175,80,0.10)' }};
+                    }
               - type: tile
                 entity: binary_sensor.fronius_curtailment_active
                 name: Fronius Curtailed
                 color: red
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: {{ 'rgba(244,67,54,0.28)' if is_state(config.entity, 'on') else 'rgba(76,175,80,0.10)' }};
+                    }
               - type: tile
                 entity: binary_sensor.sungrow_curtailment_active
                 name: Sungrow Curtailed
                 color: red
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: {{ 'rgba(244,67,54,0.28)' if is_state(config.entity, 'on') else 'rgba(76,175,80,0.10)' }};
+                    }
               - type: tile
                 entity: sensor.power_sync_solar_curtailment
                 name: PowerSync DC Curtailment
-              - type: tile
-                entity: binary_sensor.sungrow_power_limit_enabled
-                name: Sungrow Limiter Armed
                 color: amber
+                # State is text: "Active" (curtailment should be on) or "Normal".
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: {{ 'rgba(255,193,7,0.25)' if is_state(config.entity, 'Active') else 'rgba(76,175,80,0.10)' }};
+                    }
+              - type: tile
+                entity: binary_sensor.export_price_negative
+                name: Export Negative
+                color: red
+                card_mod:
+                  style: |
+                    ha-card {
+                      background: {{ 'rgba(244,67,54,0.28)' if is_state(config.entity, 'on') else 'rgba(76,175,80,0.10)' }};
+                    }
           - type: grid
             columns: 2
             square: false

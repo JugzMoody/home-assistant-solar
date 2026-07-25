@@ -177,6 +177,8 @@ views:
               - entity: sensor.fronius_energy_today
                 name: Generated Today
               - type: divider
+              - entity: binary_sensor.output_suppressed
+                name: Output Suppressed (comparison invalid while on)
               - entity: binary_sensor.fronius_autonomous_throttle
                 name: Autonomous Throttle (not us)
               - entity: sensor.fronius_grid_voltage

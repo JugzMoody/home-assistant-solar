@@ -179,6 +179,27 @@ template:
              and not (states('sensor.fronius_curtailment_enabled') | int(0) == 1
                       and states('sensor.fronius_wmaxlimpct_readback') | int(10000) < 10000) }}
 
+      - name: "Output Suppressed"
+        unique_id: output_suppressed
+        icon: "mdi:solar-power-variant-outline"
+        # ON when site output is being held BELOW its potential — by our
+        # proportional/manual curtailment OR autonomous inverter throttling.
+        # While ON, actual < potential, so forecast-vs-actual is NOT a valid
+        # measure of system health/age. Use it to exclude/flag those periods.
+        state: >-
+          {{ is_state('input_boolean.manual_full_curtail', 'on')
+             or (states('input_number.solar_curtail_limit') | float(100) < 100)
+             or is_state('binary_sensor.fronius_curtailment_active', 'on')
+             or is_state('binary_sensor.sungrow_curtailment_active', 'on')
+             or is_state('binary_sensor.fronius_autonomous_throttle', 'on') }}
+
+      - name: "Export Price Negative"
+        unique_id: export_price_negative
+        icon: "mdi:cash-minus"
+        # ON when export price < 0 — i.e. curtailment SHOULD be active (this is
+        # exactly the condition the proportional loop engages on).
+        state: "{{ states('sensor.power_sync_current_export_price') | float(0) < 0 }}"
+
   # ------------------------------------------------------------------
   # Commanded power-limit as a friendly 0-100% (for gauge cards).
   # Fronius WMaxLimPct: 0-10000 (SF -2) -> divide by 100.
@@ -416,7 +437,8 @@ input_number:
     max: 100
     step: 1
     mode: box
-    initial: 100
+    # No 'initial:' — restore last value across restarts (the loop re-derives
+    # it within 20s anyway).
     unit_of_measurement: "%"
     icon: mdi:speedometer
   solar_curtail_target_kw:
@@ -425,7 +447,9 @@ input_number:
     max: 1
     step: 0.05
     mode: box
-    initial: -0.1
+    # No 'initial:' — HA restores the last value you set via the dashboard
+    # across restarts. Setting 'initial:' here would force a reset on every
+    # HA restart and clobber any change you made in the UI.
     unit_of_measurement: "kW"
     icon: mdi:transmission-tower
 
