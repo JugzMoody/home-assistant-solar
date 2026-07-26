@@ -88,6 +88,27 @@ views:
                 color: "#1e88e5"
                 unit: kW
                 transform: "return x / 1000;"
+              # Per-inverter actual, to judge EACH array against the forecast.
+              # Early morning the WSW ("West") array is still shaded, so the
+              # forecast curve is essentially East-only then — compare the
+              # Fronius trace to the forecast curve in that clean pre-curtailment
+              # window to gauge East-array health. Where 'Actual (site)' drops
+              # below the forecast around midday, that's curtailment, not the
+              # panels.
+              - entity: sensor.fronius_live_ac_power
+                name: Fronius (East) actual
+                type: line
+                stroke_width: 2
+                color: "#8e24aa"
+                unit: kW
+                transform: "return x / 1000;"
+              - entity: sensor.sungrow_live_power_output
+                name: Sungrow (West) actual
+                type: line
+                stroke_width: 2
+                color: "#00acc1"
+                unit: kW
+                transform: "return x / 1000;"
           # ======================= TOMORROW =======================
           - type: entities
             title: Tomorrow Summary
