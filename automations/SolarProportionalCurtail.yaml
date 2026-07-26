@@ -88,8 +88,17 @@ actions:
               value: 170
     # ---------------- RELEASE: price >= 0, restore 100% once ----------------
     default:
+      # Release when EITHER the commanded limit is below 100 OR the Fronius
+      # limiter is still ARMED (WMaxLim_Ena == 1). The Ena check is critical:
+      # a brief negative-price tick can leave Ena=1 at 100%, and the Fronius
+      # reports St=5 (Throttled) whenever Ena=1 — even though no power is lost.
+      # Gating only on "limit < 100" never cleared that, so the inverter sat in
+      # a PHANTOM throttle indefinitely. (Confirmed by SunSpec test: writing
+      # Ena=0 flips St 5 -> 4 immediately.) This self-heals within one tick.
       - condition: template
-        value_template: "{{ limit < 100 }}"
+        value_template: >-
+          {{ (limit < 100)
+             or (states('sensor.fronius_curtailment_enabled') | int(0) == 1) }}
       - action: input_number.set_value
         target:
           entity_id: input_number.solar_curtail_limit

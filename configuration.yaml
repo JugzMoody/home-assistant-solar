@@ -84,6 +84,53 @@ modbus:
         address: 40107          # SunSpec St (operating state): 4=MPPT, 5=Throttled, 7=Fault
         data_type: uint16
         scan_interval: 10
+      # --- Per-string DC (SunSpec "Multiple MPPT" model 160 @ 40253) ---
+      # Verified by live SunSpec scan: N=2 modules, block length 20, data base
+      # 40255. This Primo has 2 MPPT inputs. String 1 was live (271V/2975W),
+      # String 2 read 0V/0W — watch whether String 2 is a dead/unused input.
+      # SFs (model 160 header): DCV_SF = -2 (stable), DCW_SF = -1 (may be
+      # dynamic like the AC W_SF, so DC power is templated from raw + SF below).
+      - name: "Fronius String 1 DC Voltage"
+        slave: 1
+        address: 40273          # module 1 DCV (SF -2 -> scale 0.01)
+        data_type: uint16
+        scale: 0.01
+        precision: 1
+        unit_of_measurement: "V"
+        scan_interval: 30
+      - name: "Fronius String 2 DC Voltage"
+        slave: 1
+        address: 40293          # module 2 DCV (block 2 = block 1 + 20 regs)
+        data_type: uint16
+        scale: 0.01
+        precision: 1
+        unit_of_measurement: "V"
+        scan_interval: 30
+      - name: "Fronius String 1 DC Power Raw"
+        slave: 1
+        address: 40274          # module 1 DCW mantissa (combine with DCW_SF)
+        data_type: uint16
+        scan_interval: 30
+      - name: "Fronius String 2 DC Power Raw"
+        slave: 1
+        address: 40294          # module 2 DCW mantissa
+        data_type: uint16
+        scan_interval: 30
+      - name: "Fronius DC W Scale Factor"
+        slave: 1
+        address: 40257          # DCW_SF (model 160 header, shared by both modules)
+        data_type: int16
+        scan_interval: 30
+      # --- Fault event flags (SunSpec model 101 Evt1 @ 40109, uint32) ---
+      # Reads 0 in normal/phantom-throttle states; non-zero = a real protective
+      # condition (OVER_TEMP, AC_OVER_VOLT, DC_OVER_VOLT, etc.). Temperature
+      # itself is NOT exposed by this inverter (models 103 and 160 both report
+      # "not implemented"), so this flag is the only genuine fault signal.
+      - name: "Fronius Event Flags"
+        slave: 1
+        address: 40109
+        data_type: uint32
+        scan_interval: 30
 
   - name: sungrow_inverter
     type: tcp
@@ -170,14 +217,15 @@ template:
       - name: "Fronius Autonomous Throttle"
         unique_id: fronius_autonomous_throttle
         icon: "mdi:speedometer-slow"
-        # ON when the inverter reports Throttled (St=5) but we are NOT commanding
-        # a limit — i.e. it's throttling on its own (Volt-Watt / Freq-Watt / temp),
-        # potentially losing generation even when the battery isn't full. This is
-        # the "silent loss" flag. Correlate with sensor.fronius_grid_voltage.
+        # ON when the inverter reports Throttled (St=5) while our limiter is
+        # FULLY DISABLED (Ena == 0) — i.e. it's genuinely throttling on its own
+        # (Volt-Watt / Freq-Watt / autonomous), losing real generation. The
+        # Ena==0 guard is essential: the Fronius reports St=5 whenever the
+        # limiter is armed (Ena=1) EVEN AT 100%, so keying off St alone gave a
+        # false "autonomous throttle" whenever the limiter was left armed.
         state: >-
           {{ states('sensor.fronius_operating_state_code') | int(-1) == 5
-             and not (states('sensor.fronius_curtailment_enabled') | int(0) == 1
-                      and states('sensor.fronius_wmaxlimpct_readback') | int(10000) < 10000) }}
+             and states('sensor.fronius_curtailment_enabled') | int(0) == 0 }}
 
       - name: "Output Suppressed"
         unique_id: output_suppressed
@@ -200,6 +248,16 @@ template:
         # exactly the condition the proportional loop engages on).
         state: "{{ states('sensor.power_sync_current_export_price') | float(0) < 0 }}"
 
+      - name: "Fronius Fault"
+        unique_id: fronius_fault
+        device_class: problem
+        icon: "mdi:alert"
+        # ON when SunSpec Evt1 event flags (@40109) are non-zero — a genuine
+        # protective condition (OVER_TEMP, AC/DC_OVER_VOLT, OVER_FREQ, etc.).
+        # St=5 alone is NOT a fault (usually just the limiter armed), so this is
+        # the real fault signal. Temperature is not exposed by this inverter.
+        state: "{{ states('sensor.fronius_event_flags') | int(0) > 0 }}"
+
   # ------------------------------------------------------------------
   # Commanded power-limit as a friendly 0-100% (for gauge cards).
   # Fronius WMaxLimPct: 0-10000 (SF -2) -> divide by 100.
@@ -219,6 +277,31 @@ template:
         unit_of_measurement: "%"
         state: "{{ (states('sensor.sungrow_power_limit_ratio') | int(0) / 10) | round(0) }}"
         availability: "{{ states('sensor.sungrow_power_limit_ratio') not in ['unknown', 'unavailable'] }}"
+
+      # Per-string DC power = raw mantissa x 10^DCW_SF. Templated (not a fixed
+      # scale) because DCW_SF may shift with power range like the AC W_SF did.
+      - name: "Fronius String 1 DC Power"
+        unique_id: fronius_string1_dc_power
+        unit_of_measurement: "W"
+        device_class: power
+        state: >-
+          {% set raw = states('sensor.fronius_string_1_dc_power_raw') | float(0) %}
+          {% set sf = states('sensor.fronius_dc_w_scale_factor') | float(-1) %}
+          {{ (raw * (10 ** sf)) | round(0) }}
+        availability: >-
+          {{ states('sensor.fronius_string_1_dc_power_raw') not in ['unknown', 'unavailable']
+             and states('sensor.fronius_dc_w_scale_factor') not in ['unknown', 'unavailable'] }}
+      - name: "Fronius String 2 DC Power"
+        unique_id: fronius_string2_dc_power
+        unit_of_measurement: "W"
+        device_class: power
+        state: >-
+          {% set raw = states('sensor.fronius_string_2_dc_power_raw') | float(0) %}
+          {% set sf = states('sensor.fronius_dc_w_scale_factor') | float(-1) %}
+          {{ (raw * (10 ** sf)) | round(0) }}
+        availability: >-
+          {{ states('sensor.fronius_string_2_dc_power_raw') not in ['unknown', 'unavailable']
+             and states('sensor.fronius_dc_w_scale_factor') not in ['unknown', 'unavailable'] }}
 
   # ------------------------------------------------------------------
   # Decoded operating state (text) + output-vs-rated indicators.
