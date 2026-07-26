@@ -506,6 +506,49 @@ template:
           {{ states('sensor.fronius_ac_power_raw') not in ['unknown', 'unavailable']
              and states('sensor.fronius_w_scale_factor') not in ['unknown', 'unavailable'] }}
 
+  # ------------------------------------------------------------------
+  # DAILY PER-ARRAY TRACKING — Solcast per-site daily forecast vs actual.
+  # Snapshotted at 23:58 (just before the utility_meters reset at midnight),
+  # so each reading is a COMPLETE-day figure that persists and trends day to
+  # day (unlike a live actual/full-forecast ratio, which reads negative until
+  # sunset). Trigger-based template sensors restore their last value on
+  # restart, so the figure holds until the next nightly snapshot.
+  #   delta % = (actual - forecast) / forecast x 100
+  #     0%  = matched Solcast (which already includes your per-site perf factors)
+  #    -ve  = under forecast   +ve = over forecast
+  # Morning is East-dominant (West faces away from the rising sun), so a low
+  # Fronius/East figure on clear, UN-curtailed days isolates the East array
+  # (age / soiling / morning shading). ALWAYS check the 'curtailed_today'
+  # attribute: if true, output was deliberately suppressed and the delta is
+  # NOT a health signal for that day.
+  # ------------------------------------------------------------------
+  - trigger:
+      - platform: time
+        at: "23:58:00"
+    sensor:
+      - name: "Fronius Daily Tracking (East)"
+        unique_id: fronius_daily_tracking_east
+        unit_of_measurement: "%"
+        state: >-
+          {% set fc = states('sensor.solar_wall_solcast_pv_forecast_home_east') | float(0) %}
+          {% set act = states('sensor.fronius_energy_today') | float(0) %}
+          {{ ((act - fc) / fc * 100) | round(0) if fc >= 0.5 else 0 }}
+        attributes:
+          forecast_kwh: "{{ states('sensor.solar_wall_solcast_pv_forecast_home_east') | float(0) | round(2) }}"
+          actual_kwh: "{{ states('sensor.fronius_energy_today') | float(0) | round(2) }}"
+          curtailed_today: "{{ (states('sensor.output_suppressed_today') | float(0)) > 0.1 }}"
+      - name: "Sungrow Daily Tracking (West)"
+        unique_id: sungrow_daily_tracking_west
+        unit_of_measurement: "%"
+        state: >-
+          {% set fc = states('sensor.solar_wall_solcast_pv_forecast_home_west') | float(0) %}
+          {% set act = states('sensor.sungrow_energy_today') | float(0) %}
+          {{ ((act - fc) / fc * 100) | round(0) if fc >= 0.5 else 0 }}
+        attributes:
+          forecast_kwh: "{{ states('sensor.solar_wall_solcast_pv_forecast_home_west') | float(0) | round(2) }}"
+          actual_kwh: "{{ states('sensor.sungrow_energy_today') | float(0) | round(2) }}"
+          curtailed_today: "{{ (states('sensor.output_suppressed_today') | float(0)) > 0.1 }}"
+
 
 # ==========================================
 # PROPORTIONAL SOLAR CURTAILMENT CONTROLS
@@ -575,6 +618,17 @@ sensor:
     unit_time: h
     method: trapezoidal
     round: 3
+  # Hours that output was held below potential today (curtailment/throttle).
+  # Used to invalidate the daily forecast-vs-actual health comparison: if we
+  # curtailed, actual < forecast for a deliberate reason, not degradation.
+  - platform: history_stats
+    name: "Output Suppressed Today"
+    unique_id: output_suppressed_today
+    entity_id: binary_sensor.output_suppressed
+    state: "on"
+    type: time
+    start: "{{ today_at('00:00') }}"
+    end: "{{ now() }}"
 
 
 # ==========================================

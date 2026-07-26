@@ -176,6 +176,10 @@ views:
                 name: Forecast Today (East)
               - entity: sensor.fronius_energy_today
                 name: Generated Today
+              - entity: sensor.fronius_daily_tracking_east
+                name: Tracking vs forecast (last full day)
+              - entity: sensor.output_suppressed_today
+                name: Suppressed today (hrs)
               - type: divider
               - entity: binary_sensor.output_suppressed
                 name: Output Suppressed (comparison invalid while on)
@@ -185,10 +189,19 @@ views:
                 name: Grid Voltage
           - type: markdown
             content: >
-              {% set fc = states('sensor.solar_wall_solcast_pv_forecast_home_east') | float(0) %}
-              {% set act = states('sensor.fronius_energy_today') | float(0) %}
-              ### Fronius tracking: {% if fc >= 0.5 %}{{ ((act - fc) / fc * 100) | round(0) }}%{% else %}n/a yet{% endif %}
-              (+ = ahead of the 80%-adjusted East forecast)
+              {% set t = states('sensor.fronius_daily_tracking_east') %}
+              {% set curt = state_attr('sensor.fronius_daily_tracking_east', 'curtailed_today') %}
+
+              ### East vs forecast (last full day):
+              {% if t not in ['unknown', 'unavailable', none] %}**{{ t }}%**{% if curt %} ⚠️ curtailed — ignore{% endif %}{% else %}n/a until first 23:58 snapshot{% endif %}
+
+
+              0% = matched the 80%-adjusted East forecast; − = under.
+
+
+              Today so far: {{ states('sensor.fronius_energy_today') }} /
+              {{ states('sensor.solar_wall_solcast_pv_forecast_home_east') }} kWh
+              (full-day forecast — only comparable at sunset)
       # ---------------- Sungrow (West) ----------------
       - type: grid
         cards:
@@ -201,9 +214,20 @@ views:
                 name: Forecast Today (West)
               - entity: sensor.sungrow_energy_today
                 name: Generated Today
+              - entity: sensor.sungrow_daily_tracking_west
+                name: Tracking vs forecast (last full day)
           - type: markdown
             content: >
-              {% set fc = states('sensor.solar_wall_solcast_pv_forecast_home_west') | float(0) %}
-              {% set act = states('sensor.sungrow_energy_today') | float(0) %}
-              ### Sungrow tracking: {% if fc >= 0.5 %}{{ ((act - fc) / fc * 100) | round(0) }}%{% else %}n/a yet{% endif %}
-              (+ = ahead of the West forecast)
+              {% set t = states('sensor.sungrow_daily_tracking_west') %}
+              {% set curt = state_attr('sensor.sungrow_daily_tracking_west', 'curtailed_today') %}
+
+              ### West vs forecast (last full day):
+              {% if t not in ['unknown', 'unavailable', none] %}**{{ t }}%**{% if curt %} ⚠️ curtailed — ignore{% endif %}{% else %}n/a until first 23:58 snapshot{% endif %}
+
+
+              0% = matched the West forecast; − = under.
+
+
+              Today so far: {{ states('sensor.sungrow_energy_today') }} /
+              {{ states('sensor.solar_wall_solcast_pv_forecast_home_west') }} kWh
+              (full-day forecast — only comparable at sunset)
