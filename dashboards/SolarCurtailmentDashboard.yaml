@@ -201,10 +201,27 @@ views:
                 name: Fronius Operating State
               - entity: binary_sensor.fronius_autonomous_throttle
                 name: Autonomous Throttle (not us)
+              - entity: binary_sensor.fronius_fault
+                name: Fronius Fault (event flags)
               - entity: sensor.fronius_grid_voltage
                 name: Fronius Grid Voltage
               - entity: sensor.sungrow_operating_state
                 name: Sungrow Operating State
+          # Per-string DC (SunSpec model 160). String 2 read 0V/0W during
+          # investigation — watch here to see if it's a dead/unused input.
+          - type: entities
+            title: Fronius Strings (DC)
+            state_color: true
+            entities:
+              - entity: sensor.fronius_string_1_dc_voltage
+                name: String 1 Voltage
+              - entity: sensor.fronius_string_1_dc_power
+                name: String 1 Power
+              - type: divider
+              - entity: sensor.fronius_string_2_dc_voltage
+                name: String 2 Voltage
+              - entity: sensor.fronius_string_2_dc_power
+                name: String 2 Power
           - type: entities
             title: Powerwall Health (local TEDAPI)
             state_color: true
