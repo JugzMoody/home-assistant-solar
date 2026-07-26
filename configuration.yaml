@@ -610,6 +610,19 @@ sensor:
   # utility_meters below reset these each midnight for the per-inverter health
   # comparison. Brief Modbus dropouts cause minor under-count, acceptable for a
   # daily age check.
+  # NOTE: Fronius uses Riemann here (NOT a utility_meter on the lifetime WH
+  # counter). A utility_meter on the lifetime counter counted the ENTIRE
+  # lifetime (~187,000 kWh) as "today" because it read the first
+  # unavailable->value transition as a reset-from-zero. Riemann starts at 0 and
+  # grows gradually, so it has no such spike — same proven path as the Sungrow.
+  - platform: integration
+    source: sensor.fronius_live_ac_power
+    name: "Fronius Energy Total"
+    unique_id: fronius_energy_total
+    unit_prefix: k
+    unit_time: h
+    method: trapezoidal
+    round: 3
   - platform: integration
     source: sensor.sungrow_live_power_output
     name: "Sungrow Energy Total"
@@ -636,7 +649,7 @@ sensor:
 # ==========================================
 utility_meter:
   fronius_energy_today:
-    source: sensor.fronius_lifetime_energy   # robust lifetime counter (no dropout loss)
+    source: sensor.fronius_energy_total      # Riemann integral of live AC power
     name: "Fronius Energy Today"
     cycle: daily
   sungrow_energy_today:
