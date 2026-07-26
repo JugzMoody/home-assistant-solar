@@ -28,6 +28,13 @@ actions:
       bat: "{{ states('sensor.power_sync_battery_power') | float(0) }}"
       target: "{{ states('input_number.solar_curtail_target_kw') | float(-0.1) }}"
       limit: "{{ states('input_number.solar_curtail_limit') | float(100) }}"
+      # Minimum commanded limit (%). Never drive the inverters below this while
+      # curtailing. The Sungrow SHUTS DOWN at 0% (ratio=0) and takes minutes to
+      # restart; on the way back the Fronius has already over-ramped to cover
+      # the load, so recovery causes a big export spike. Holding ~5% (~250 W
+      # each) keeps both inverters actively generating so neither drops out.
+      # The house baseline load comfortably absorbs this floor.
+      min_limit: 5
   - choose:
       # ---------------- CURTAIL: negative export price ----------------
       - conditions:
@@ -53,7 +60,7 @@ actions:
               # target = 0 (zero export): tracks cleanly without excessive jitter.
               newlimit: >-
                 {% if err > 0.05 %}{{ [100, (limit + step)] | min }}
-                {% elif err < -0.05 %}{{ [0, (limit - step)] | max }}
+                {% elif err < -0.05 %}{{ [min_limit, (limit - step)] | max }}
                 {% else %}{{ limit }}{% endif %}
           - action: input_number.set_value
             target:
