@@ -60,7 +60,12 @@ actions:
               entity_id: input_number.solar_curtail_limit
             data:
               value: "{{ newlimit }}"
-          # --- Fronius: WMaxLimPct = limit% x 100, ensure override enabled ---
+          # --- Fronius: WMaxLimPct = limit% x 100. Enable the limiter (Ena=1)
+          #     ONLY when actually reducing (newlimit < 100). At 100% we set
+          #     Ena=0, because the Fronius reports St=5 (Throttled) whenever the
+          #     limiter is armed — even at 100% — which showed a PHANTOM throttle
+          #     during negative-price windows that weren't trimming anything.
+          #     Now Ena tracks "are we really curtailing" exactly.
           - action: modbus.write_register
             data:
               hub: fronius_inverter
@@ -72,7 +77,7 @@ actions:
               hub: fronius_inverter
               slave: 1
               address: 40236
-              value: 1
+              value: "{{ 1 if (newlimit | float(100)) < 100 else 0 }}"
           # --- Sungrow: ratio = limit% x 10, ensure limiter enabled ---
           - action: modbus.write_register
             data:
