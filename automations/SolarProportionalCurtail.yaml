@@ -35,6 +35,18 @@ actions:
       # each) keeps both inverters actively generating so neither drops out.
       # The house baseline load comfortably absorbs this floor.
       min_limit: 5
+      # Asymmetric ramp tuning (only applies while curtailing at negative price).
+      #  DOWN = reducing solar because we're exporting past target -> AGGRESSIVE,
+      #         so unwanted export is killed fast.
+      #  UP   = increasing solar because house load rose / battery is discharging
+      #         -> GENTLE, because the battery absorbs the short-term load, so we
+      #         don't need to chase transient loads (e.g. the microwave) and avoid
+      #         nervous hunting. When price returns >= 0 the release branch snaps
+      #         straight to 100%, so this gentle up-ramp only affects curtailment.
+      down_gain: 25    # %/kW step when DECREASING solar
+      down_cap: 40     # max % down-step per 20 s tick
+      up_gain: 8       # %/kW step when INCREASING solar
+      up_cap: 8        # max % up-step per 20 s tick
   - choose:
       # ---------------- CURTAIL: negative export price ----------------
       - conditions:
@@ -53,14 +65,17 @@ actions:
               #                    grid≈0 could be satisfied by solar=0 + battery
               #                    discharge, trapping solar at zero.
               err: "{{ (grid - target) + ([0, bat] | max) }}"
-              # step proportional to the error (%/kW = 15), capped 1-20%.
-              step: "{{ [20, [1, (err | abs) * 15] | max] | min }}"
+              # Asymmetric proportional steps (see tuning knobs above):
+              #   down_step: aggressive (high gain/cap) to stop export fast.
+              #   up_step:   gentle (low gain/cap); battery covers the short term.
+              down_step: "{{ [down_cap, [2, (err | abs) * down_gain] | max] | min }}"
+              up_step: "{{ [up_cap, [1, (err | abs) * up_gain] | max] | min }}"
               # Deadband 0.05 kW — tight tracking; the 30 s grid smoothing keeps
               # noise well below this so it doesn't hunt. Confirmed good with
               # target = 0 (zero export): tracks cleanly without excessive jitter.
               newlimit: >-
-                {% if err > 0.05 %}{{ [100, (limit + step)] | min }}
-                {% elif err < -0.05 %}{{ [min_limit, (limit - step)] | max }}
+                {% if err > 0.05 %}{{ [100, (limit + up_step)] | min }}
+                {% elif err < -0.05 %}{{ [min_limit, (limit - down_step)] | max }}
                 {% else %}{{ limit }}{% endif %}
           - action: input_number.set_value
             target:
