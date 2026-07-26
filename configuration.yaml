@@ -532,6 +532,42 @@ template:
              and states('sensor.fronius_w_scale_factor') not in ['unknown', 'unavailable'] }}
 
   # ------------------------------------------------------------------
+  # FRONIUS "TODAY" via midnight-baseline (no native daily register exists).
+  # today = lifetime_now - lifetime_at_last_midnight. The lifetime counter holds
+  # its value overnight, so snapshotting it at 00:00 gives a clean daily zero
+  # point. Full accuracy (every Wh the meter counted), immune to the
+  # utility_meter reset-from-zero spike, and matches the Fronius LCD's own daily.
+  # ------------------------------------------------------------------
+  - trigger:
+      - platform: time
+        at: "00:00:30"
+    sensor:
+      - name: "Fronius Lifetime At Midnight"
+        unique_id: fronius_lifetime_at_midnight
+        device_class: energy
+        unit_of_measurement: "kWh"
+        state: >-
+          {% set v = states('sensor.fronius_lifetime_energy') | float(0) %}
+          {% set prev = states('sensor.fronius_lifetime_at_midnight') | float(0) %}
+          {# Only accept a valid, non-decreasing lifetime; else keep the previous
+             baseline so a night-time dropout can't corrupt it. #}
+          {{ v if (v > 0 and v >= prev) else prev }}
+  - sensor:
+      - name: "Fronius Energy Today"
+        unique_id: fronius_energy_today
+        device_class: energy
+        state_class: total_increasing
+        unit_of_measurement: "kWh"
+        state: >-
+          {% set now_v = states('sensor.fronius_lifetime_energy') | float(0) %}
+          {% set base = states('sensor.fronius_lifetime_at_midnight') | float(0) %}
+          {{ [now_v - base, 0] | max | round(2) }}
+        availability: >-
+          {{ states('sensor.fronius_lifetime_energy') not in ['unknown', 'unavailable']
+             and states('sensor.fronius_lifetime_at_midnight') not in ['unknown', 'unavailable']
+             and (states('sensor.fronius_lifetime_energy') | float(-1)) >= (states('sensor.fronius_lifetime_at_midnight') | float(0)) }}
+
+  # ------------------------------------------------------------------
   # DAILY PER-ARRAY TRACKING — Solcast per-site daily forecast vs actual.
   # Snapshotted at 23:58 (just before the utility_meters reset at midnight),
   # so each reading is a COMPLETE-day figure that persists and trends day to
@@ -631,25 +667,16 @@ sensor:
     max_age:
       seconds: 30
     sampling_size: 15
-  # Per-inverter energy (Riemann integration of live power -> kWh). The daily
-  # utility_meters below reset these each midnight for the per-inverter health
-  # comparison. Brief Modbus dropouts cause minor under-count, acceptable for a
-  # daily age check.
-  # NOTE: Fronius uses Riemann here (NOT a utility_meter on the lifetime WH
-  # counter). A utility_meter on the lifetime counter counted the ENTIRE
-  # lifetime (~187,000 kWh) as "today" because it read the first
-  # unavailable->value transition as a reset-from-zero. Riemann starts at 0 and
-  # grows gradually, so it has no such spike — same proven path as the Sungrow.
-  - platform: integration
-    source: sensor.fronius_live_ac_power
-    name: "Fronius Energy Total"
-    unique_id: fronius_energy_total
-    unit_prefix: k
-    unit_time: h
-    method: trapezoidal
-    round: 3
-  # (Sungrow no longer needs a Riemann integration — it exposes a native daily
-  # yield register, sensor.sungrow_daily_energy, read directly above.)
+  # Per-inverter daily energy:
+  #   Sungrow  -> native "Daily power yields" register (sensor.sungrow_daily_energy).
+  #   Fronius  -> midnight-baseline delta on the lifetime counter (defined in the
+  #              template: section as sensor.fronius_energy_today). The Fronius
+  #              SunSpec map exposes ONLY a lifetime accumulator (no daily
+  #              register), so we replicate exactly what its LCD does:
+  #              today = lifetime_now - lifetime_at_last_midnight. This is
+  #              dropout-tolerant and full-accuracy (no integration error), unlike
+  #              a Riemann integral, and immune to the utility_meter reset-from-
+  #              zero spike that previously reported the whole ~187,000 kWh.
   # Hours that output was held below potential today (curtailment/throttle).
   # Used to invalidate the daily forecast-vs-actual health comparison: if we
   # curtailed, actual < forecast for a deliberate reason, not degradation.
@@ -666,10 +693,6 @@ sensor:
 # ==========================================
 # PER-INVERTER DAILY ENERGY (for age/health comparison vs per-site forecast)
 # ==========================================
-utility_meter:
-  fronius_energy_today:
-    source: sensor.fronius_energy_total      # Riemann integral of live AC power
-    name: "Fronius Energy Today"
-    cycle: daily
-  # (No sungrow_energy_today utility_meter — the inverter's native daily yield
-  # register sensor.sungrow_daily_energy is used directly and self-resets.)
+# No utility_meter needed any more:
+#   Sungrow uses its native self-resetting daily register.
+#   Fronius uses the midnight-baseline template sensors below.
