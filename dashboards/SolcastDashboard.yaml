@@ -212,8 +212,8 @@ views:
               # CONFIRM this holds the West daily forecast total (kWh):
               - entity: sensor.solar_wall_solcast_pv_forecast_home_west
                 name: Forecast Today (West)
-              - entity: sensor.sungrow_energy_today
-                name: Generated Today
+              - entity: sensor.sungrow_daily_energy
+                name: Generated Today (native register)
               - entity: sensor.sungrow_daily_tracking_west
                 name: Tracking vs forecast (last full day)
           - type: markdown
@@ -228,6 +228,6 @@ views:
               0% = matched the West forecast; − = under.
 
 
-              Today so far: {{ states('sensor.sungrow_energy_today') }} /
+              Today so far: {{ states('sensor.sungrow_daily_energy') }} /
               {{ states('sensor.solar_wall_solcast_pv_forecast_home_west') }} kWh
               (full-day forecast — only comparable at sunset)

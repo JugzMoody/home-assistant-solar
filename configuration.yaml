@@ -174,6 +174,31 @@ modbus:
         input_type: input
         data_type: uint16
         scan_interval: 10
+      # Native energy yields (SG string map; wire addr = doc - 1). Confirmed by
+      # live scan while HA stopped, cross-checked against nominal power (5000 =
+      # 5.0 kW) and grid freq (5035 = 50.0 Hz). These match the LCD and reset
+      # themselves at midnight — no Riemann integration needed.
+      - name: "Sungrow Daily Energy"
+        slave: 1
+        address: 5002           # doc reg 5003 "Daily power yields", uint16, 0.1 kWh
+        input_type: input
+        data_type: uint16
+        scale: 0.1
+        precision: 1
+        device_class: energy
+        state_class: total_increasing
+        unit_of_measurement: "kWh"
+        scan_interval: 60
+      - name: "Sungrow Lifetime Energy"
+        slave: 1
+        address: 5003           # doc reg 5004 "Total power yields", uint32 (word-swap), 1 kWh
+        input_type: input
+        data_type: uint32
+        swap: word
+        device_class: energy
+        state_class: total_increasing
+        unit_of_measurement: "kWh"
+        scan_interval: 60
 
 
 # ==========================================
@@ -542,11 +567,11 @@ template:
         unit_of_measurement: "%"
         state: >-
           {% set fc = states('sensor.solar_wall_solcast_pv_forecast_home_west') | float(0) %}
-          {% set act = states('sensor.sungrow_energy_today') | float(0) %}
+          {% set act = states('sensor.sungrow_daily_energy') | float(0) %}
           {{ ((act - fc) / fc * 100) | round(0) if fc >= 0.5 else 0 }}
         attributes:
           forecast_kwh: "{{ states('sensor.solar_wall_solcast_pv_forecast_home_west') | float(0) | round(2) }}"
-          actual_kwh: "{{ states('sensor.sungrow_energy_today') | float(0) | round(2) }}"
+          actual_kwh: "{{ states('sensor.sungrow_daily_energy') | float(0) | round(2) }}"
           curtailed_today: "{{ (states('sensor.output_suppressed_today') | float(0)) > 0.1 }}"
 
 
@@ -623,14 +648,8 @@ sensor:
     unit_time: h
     method: trapezoidal
     round: 3
-  - platform: integration
-    source: sensor.sungrow_live_power_output
-    name: "Sungrow Energy Total"
-    unique_id: sungrow_energy_total
-    unit_prefix: k
-    unit_time: h
-    method: trapezoidal
-    round: 3
+  # (Sungrow no longer needs a Riemann integration — it exposes a native daily
+  # yield register, sensor.sungrow_daily_energy, read directly above.)
   # Hours that output was held below potential today (curtailment/throttle).
   # Used to invalidate the daily forecast-vs-actual health comparison: if we
   # curtailed, actual < forecast for a deliberate reason, not degradation.
@@ -652,7 +671,5 @@ utility_meter:
     source: sensor.fronius_energy_total      # Riemann integral of live AC power
     name: "Fronius Energy Today"
     cycle: daily
-  sungrow_energy_today:
-    source: sensor.sungrow_energy_total
-    name: "Sungrow Energy Today"
-    cycle: daily
+  # (No sungrow_energy_today utility_meter — the inverter's native daily yield
+  # register sensor.sungrow_daily_energy is used directly and self-resets.)
