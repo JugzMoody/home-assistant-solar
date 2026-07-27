@@ -94,6 +94,7 @@ modbus:
         slave: 1
         address: 40273          # module 1 DCV (SF -2 -> scale 0.01)
         data_type: uint16
+        nan_value: 65535        # 0xFFFF = SunSpec "not implemented" (dusk dropout) -> unavailable
         scale: 0.01
         precision: 1
         unit_of_measurement: "V"
@@ -102,6 +103,7 @@ modbus:
         slave: 1
         address: 40293          # module 2 DCV (block 2 = block 1 + 20 regs)
         data_type: uint16
+        nan_value: 65535        # 0xFFFF = SunSpec "not implemented" (dusk dropout) -> unavailable
         scale: 0.01
         precision: 1
         unit_of_measurement: "V"
@@ -114,6 +116,7 @@ modbus:
         slave: 1
         address: 40272          # module 1 DCA
         data_type: uint16
+        nan_value: 65535        # 0xFFFF = SunSpec "not implemented" (dusk dropout) -> unavailable
         scale: 0.01
         precision: 2
         unit_of_measurement: "A"
@@ -122,6 +125,7 @@ modbus:
         slave: 1
         address: 40292          # module 2 DCA
         data_type: uint16
+        nan_value: 65535        # 0xFFFF = SunSpec "not implemented" (dusk dropout) -> unavailable
         scale: 0.01
         precision: 2
         unit_of_measurement: "A"
