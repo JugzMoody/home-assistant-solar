@@ -705,6 +705,13 @@ sensor:
     type: time
     start: "{{ today_at('00:00') }}"
     end: "{{ now() }}"
+  # Clock (updates every minute) — put on a dashboard to confirm the view is
+  # live. For DATA freshness (is Modbus actually flowing?), prefer a live
+  # sensor's 'last-updated' secondary info on a dashboard card.
+  - platform: time_date
+    display_options:
+      - "date_time"
+      - "time"
 
 
 # ==========================================

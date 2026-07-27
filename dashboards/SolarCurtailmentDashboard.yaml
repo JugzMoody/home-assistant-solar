@@ -181,6 +181,15 @@ views:
             title: Curtailment & Live Values
             state_color: true
             entities:
+              # Freshness: the clock should match wall time (view is live), and
+              # the Fronius power 'last updated' should read a few seconds ago
+              # (Modbus data is actually flowing, not stale).
+              - entity: sensor.date_time
+                name: Clock (should match now)
+              - entity: sensor.fronius_live_ac_power
+                name: Fronius data updated
+                secondary_info: last-updated
+              - type: divider
               - entity: input_number.solar_curtail_limit
                 name: Commanded Limit
               - entity: input_number.solar_curtail_target_kw
