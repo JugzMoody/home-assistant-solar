@@ -109,6 +109,38 @@ views:
                 color: "#00acc1"
                 unit: kW
                 transform: "return x / 1000;"
+          # Fronius per-string DC current — watch the mid-morning clean peak.
+          # Two parallel strings on MPPT1: healthy full sun approaches ~15-17 A.
+          # String 2 (unused MPPT input) should sit at 0.
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Fronius String DC Current (A)
+            graph_span: 24h
+            span:
+              start: day
+            now:
+              show: true
+              label: Now
+            apex_config:
+              chart:
+                height: 260
+            yaxis:
+              - min: 0
+                apex_config:
+                  title:
+                    text: A
+            series:
+              - entity: sensor.fronius_string_1_dc_current
+                name: String 1 (all 20 panels)
+                type: line
+                stroke_width: 2
+                color: "#8e24aa"
+              - entity: sensor.fronius_string_2_dc_current
+                name: String 2 (unused input)
+                type: line
+                stroke_width: 1
+                color: "#b0bec5"
           # ======================= TOMORROW =======================
           - type: entities
             title: Tomorrow Summary
