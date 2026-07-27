@@ -106,20 +106,25 @@ modbus:
         precision: 1
         unit_of_measurement: "V"
         scan_interval: 30
-      - name: "Fronius String 1 DC Power Raw"
+      # DC current per string (SF -2 -> scale 0.01, STATIC — unlike DCW_SF).
+      # We compute DC power as V x A in the template below, which avoids the
+      # dynamic DCW_SF entirely (that SF shifts between -1 and -2 by power band,
+      # and reading it a scan apart from the raw mantissa produced 10x spikes).
+      - name: "Fronius String 1 DC Current"
         slave: 1
-        address: 40274          # module 1 DCW mantissa (combine with DCW_SF)
+        address: 40272          # module 1 DCA
         data_type: uint16
+        scale: 0.01
+        precision: 2
+        unit_of_measurement: "A"
         scan_interval: 30
-      - name: "Fronius String 2 DC Power Raw"
+      - name: "Fronius String 2 DC Current"
         slave: 1
-        address: 40294          # module 2 DCW mantissa
+        address: 40292          # module 2 DCA
         data_type: uint16
-        scan_interval: 30
-      - name: "Fronius DC W Scale Factor"
-        slave: 1
-        address: 40257          # DCW_SF (model 160 header, shared by both modules)
-        data_type: int16
+        scale: 0.01
+        precision: 2
+        unit_of_measurement: "A"
         scan_interval: 30
       # --- Fault event flags (SunSpec model 101 Evt1 @ 40109, uint32) ---
       # Reads 0 in normal/phantom-throttle states; non-zero = a real protective
@@ -303,30 +308,33 @@ template:
         state: "{{ (states('sensor.sungrow_power_limit_ratio') | int(0) / 10) | round(0) }}"
         availability: "{{ states('sensor.sungrow_power_limit_ratio') not in ['unknown', 'unavailable'] }}"
 
-      # Per-string DC power = raw mantissa x 10^DCW_SF. Templated (not a fixed
-      # scale) because DCW_SF may shift with power range like the AC W_SF did.
+      # Per-string DC power = DC voltage x DC current. Both have STATIC scale
+      # factors (SF -2), so this is immune to the DCW_SF dynamic-scale spikes
+      # (the old raw-mantissa x 10^DCW_SF approach produced ~10x glitches when
+      # the mantissa and the separately-read, band-switching SF were a poll out
+      # of step). V and A can be read a scan apart with no ill effect.
       - name: "Fronius String 1 DC Power"
         unique_id: fronius_string1_dc_power
         unit_of_measurement: "W"
         device_class: power
         state: >-
-          {% set raw = states('sensor.fronius_string_1_dc_power_raw') | float(0) %}
-          {% set sf = states('sensor.fronius_dc_w_scale_factor') | float(-1) %}
-          {{ (raw * (10 ** sf)) | round(0) }}
+          {% set v = states('sensor.fronius_string_1_dc_voltage') | float(0) %}
+          {% set a = states('sensor.fronius_string_1_dc_current') | float(0) %}
+          {{ (v * a) | round(0) }}
         availability: >-
-          {{ states('sensor.fronius_string_1_dc_power_raw') not in ['unknown', 'unavailable']
-             and states('sensor.fronius_dc_w_scale_factor') not in ['unknown', 'unavailable'] }}
+          {{ states('sensor.fronius_string_1_dc_voltage') not in ['unknown', 'unavailable']
+             and states('sensor.fronius_string_1_dc_current') not in ['unknown', 'unavailable'] }}
       - name: "Fronius String 2 DC Power"
         unique_id: fronius_string2_dc_power
         unit_of_measurement: "W"
         device_class: power
         state: >-
-          {% set raw = states('sensor.fronius_string_2_dc_power_raw') | float(0) %}
-          {% set sf = states('sensor.fronius_dc_w_scale_factor') | float(-1) %}
-          {{ (raw * (10 ** sf)) | round(0) }}
+          {% set v = states('sensor.fronius_string_2_dc_voltage') | float(0) %}
+          {% set a = states('sensor.fronius_string_2_dc_current') | float(0) %}
+          {{ (v * a) | round(0) }}
         availability: >-
-          {{ states('sensor.fronius_string_2_dc_power_raw') not in ['unknown', 'unavailable']
-             and states('sensor.fronius_dc_w_scale_factor') not in ['unknown', 'unavailable'] }}
+          {{ states('sensor.fronius_string_2_dc_voltage') not in ['unknown', 'unavailable']
+             and states('sensor.fronius_string_2_dc_current') not in ['unknown', 'unavailable'] }}
 
   # ------------------------------------------------------------------
   # Decoded operating state (text) + output-vs-rated indicators.
