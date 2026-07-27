@@ -533,7 +533,16 @@ template:
           {% if raw in ['unknown', 'unavailable'] or sf in ['unknown', 'unavailable'] %}
             {{ None }}
           {% else %}
-            {{ (raw | float(0) * (10 ** (sf | int(0)))) | round(0) }}
+            {% set p = raw | float(0) * (10 ** (sf | int(0))) %}
+            {# W_SF is DYNAMIC and read as a separate register from the mantissa,
+               so a poll-timing mismatch yields ~10x spikes (e.g. 31,930 W). AC
+               can never exceed the DC input, so bound it by the (clean, V x A)
+               String 1 DC power; if DC isn't ready, fall back to the ~5 kW
+               inverter ceiling. On a spike, hold the last good value. #}
+            {% set dc = states('sensor.fronius_string_1_dc_power') | float(-1) %}
+            {% set cap = (dc * 1.05) if dc >= 200 else 5100 %}
+            {% if p <= cap %}{{ p | round(0) }}
+            {% else %}{{ states('sensor.fronius_live_ac_power') | float(0) }}{% endif %}
           {% endif %}
         availability: >-
           {{ states('sensor.fronius_ac_power_raw') not in ['unknown', 'unavailable']
