@@ -58,7 +58,7 @@ Solcast azimuth convention: **N = 0, E = −90, W = +90, S = ±180**.
 | Site | Array | Azimuth | Tilt | DC / AC | Efficiency |
 |------|-------|---------|------|---------|-----------|
 | East | Fronius, 20 × 270 W | −60 (ENE) | 22° | 5.4 / 5.0 kW | 80% |
-| West | Sungrow | +? (WSW) | — | — | 95% (tuned to match observed output) |
+| West | Sungrow | +120 (WSW/SW) | 22° | 6.6 / 5.0 kW | 95% (tuned to match observed output) |
 
 Location: Brisbane/Redlands (−27.3169, 153.0355). The East daily forecast is a
 valid benchmark; the intraday model over-predicts the ENE **morning** ramp, so
