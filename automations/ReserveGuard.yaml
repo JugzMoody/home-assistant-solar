@@ -5,26 +5,29 @@ description: >-
   snapshot masks the real Gateway value). HA has only ONE reserve entity
   (number.power_sync_tesla_backup_reserve) which conflates "commanded" and
   "actual", so instead of comparing reserve values this guard detects the
-  costly OUTCOME: importing expensive grid power while the battery is holding
-  usable charge and refusing to discharge, in normal (self-consumption) mode.
+  behavioural fingerprint of a divergence: SOC is ABOVE the last COMMANDED
+  reserve (so the battery *should* be discharging), yet it isn't and we're
+  importing expensive grid power in normal (self-consumption) mode. That only
+  happens when the ACTUAL reserve is stuck higher than what was commanded.
 
   On trigger it forces a PowerSync refresh (power_sync.sync_now — may self-heal
   a stale reading) and notifies. If input_boolean.reserve_guard_auto_release is
-  ON it lowers the reserve to release the battery. Toggle that boolean off for
-  alert-only.
+  ON it RE-ASSERTS the commanded reserve (making actual match commanded).
+  Toggle that boolean off for alert-only.
 
   Thresholds are inlined in the trigger; adjust to taste:
-    grid import  > 0.3 kW      (meaningfully drawing from grid)
-    import price > 0.20 $/kWh  (expensive enough to care)
-    SOC          > 15 %        (usable charge above the 10% hardware floor)
-    battery power < 0.1 kW     (NOT discharging — being held back)
-    mode == normal             (don't override a deliberate backup/force/storm)
+    grid import  > 0.3 kW       (meaningfully drawing from grid)
+    import price > 0.20 $/kWh   (expensive enough to want the battery)
+    SOC          > commanded reserve + 2%  (battery should be able to discharge)
+    battery power < 0.1 kW      (NOT discharging — being held back)
+    mode == normal              (don't override a deliberate backup/force/storm)
 triggers:
   - trigger: template
     value_template: >-
       {{ states('sensor.power_sync_grid_power') | float(0) > 0.3
          and states('sensor.power_sync_current_import_price') | float(0) > 0.20
-         and states('sensor.power_sync_battery_level') | float(0) > 15
+         and states('sensor.power_sync_battery_level') | float(0)
+             > (states('number.power_sync_tesla_backup_reserve') | float(100) + 2)
          and states('sensor.power_sync_battery_power') | float(0) < 0.1
          and is_state('sensor.power_sync_battery_mode', 'normal') }}
     for:
@@ -36,7 +39,9 @@ actions:
       price: "{{ states('sensor.power_sync_current_import_price') | float(0) }}"
       grid: "{{ states('sensor.power_sync_grid_power') | float(0) }}"
       reserve: "{{ states('number.power_sync_tesla_backup_reserve') | float(0) }}"
-      release_reserve: 10   # release target (= hardware min); tune if desired
+      # Re-assert PowerSync's COMMANDED reserve (so actual matches commanded),
+      # floored at the 10% hardware minimum.
+      release_reserve: "{{ [ (reserve | int(10)), 10 ] | max }}"
   # Force PowerSync to re-read Tesla — a stale local snapshot can mask the real
   # Gateway reserve. This refreshes the reading and may prompt PS to re-apply.
   - action: power_sync.sync_now
@@ -47,10 +52,11 @@ actions:
       title: "⚠️ Battery held back during expensive import"
       message: >-
         Importing {{ grid | round(2) }} kW at {{ (price * 100) | round(1) }}
-        c/kWh while SOC is {{ soc | round(0) }}% and the battery isn't
-        discharging. PowerSync reserve reads {{ reserve | round(0) }}% — likely
-        a reserve set higher than intended (verify in the Tesla app). Auto-release
-        is {{ 'ON' if is_state('input_boolean.reserve_guard_auto_release', 'on') else 'OFF' }}.
+        c/kWh while SOC is {{ soc | round(0) }}% — ABOVE the commanded reserve
+        of {{ reserve | round(0) }}% — yet the battery isn't discharging. The
+        actual reserve is likely stuck higher than commanded (verify in the
+        Tesla app). Auto-release is
+        {{ 'ON' if is_state('input_boolean.reserve_guard_auto_release', 'on') else 'OFF' }}.
   # Correction (opt-in): only if STILL trapped after the refresh, lower the
   # reserve so the battery can serve the load instead of the grid.
   - choose:
@@ -77,5 +83,6 @@ actions:
               notification_id: reserve_guard_action
               title: "Reserve auto-released"
               message: >-
-                Lowered backup reserve to {{ release_reserve }}% to release the
-                battery during expensive import (was reading {{ reserve | round(0) }}%).
+                Re-asserted the commanded backup reserve ({{ release_reserve }}%)
+                to release the battery during expensive import — actual was stuck
+                higher than commanded.
