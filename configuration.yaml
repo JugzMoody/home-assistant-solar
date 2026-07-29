@@ -672,6 +672,13 @@ input_boolean:
   manual_full_curtail:
     name: Manual Full Curtail
     icon: mdi:solar-power-variant-outline
+  # When ON, the Backup Reserve Safety Guard (automations/ReserveGuard.yaml)
+  # will auto-lower the Powerwall reserve to release the battery if it detects
+  # expensive grid import while the battery is holding usable charge. OFF =
+  # alert-only. No 'initial:' so your choice persists across restarts.
+  reserve_guard_auto_release:
+    name: Reserve Guard Auto-Release
+    icon: mdi:battery-alert-variant-outline
 
 
 # ==========================================
