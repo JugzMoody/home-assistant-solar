@@ -7,8 +7,9 @@ description: >-
   "actual", so instead of comparing reserve values this guard detects the
   behavioural fingerprint of a divergence: SOC is ABOVE the last COMMANDED
   reserve (so the battery *should* be discharging), yet it isn't and we're
-  importing expensive grid power in normal (self-consumption) mode. That only
-  happens when the ACTUAL reserve is stuck higher than what was commanded.
+  importing from the grid in normal (self-consumption) mode. That only happens
+  when the ACTUAL reserve is stuck higher than what was commanded — regardless
+  of price, because we trust PowerSync's commanded reserve as the intent.
 
   On trigger it forces a PowerSync refresh (power_sync.sync_now — may self-heal
   a stale reading) and notifies. If input_boolean.reserve_guard_auto_release is
@@ -17,7 +18,6 @@ description: >-
 
   Thresholds are inlined in the trigger; adjust to taste:
     grid import  > 0.3 kW       (meaningfully drawing from grid)
-    import price > 0.20 $/kWh   (expensive enough to want the battery)
     SOC          > commanded reserve + 2%  (battery should be able to discharge)
     battery power < 0.1 kW      (NOT discharging — being held back)
     mode == normal              (don't override a deliberate backup/force/storm)
@@ -25,7 +25,6 @@ triggers:
   - trigger: template
     value_template: >-
       {{ states('sensor.power_sync_grid_power') | float(0) > 0.3
-         and states('sensor.power_sync_current_import_price') | float(0) > 0.20
          and states('sensor.power_sync_battery_level') | float(0)
              > (states('number.power_sync_tesla_backup_reserve') | float(100) + 2)
          and states('sensor.power_sync_battery_power') | float(0) < 0.1
