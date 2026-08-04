@@ -553,26 +553,41 @@ template:
              and states('sensor.fronius_w_scale_factor') not in ['unknown', 'unavailable'] }}
 
   # ------------------------------------------------------------------
-  # FRONIUS "TODAY" via midnight-baseline (no native daily register exists).
-  # today = lifetime_now - lifetime_at_last_midnight. The lifetime counter holds
-  # its value overnight, so snapshotting it at 00:00 gives a clean daily zero
-  # point. Full accuracy (every Wh the meter counted), immune to the
-  # utility_meter reset-from-zero spike, and matches the Fronius LCD's own daily.
+  # FRONIUS "TODAY" via day-start baseline (no native daily register exists).
+  # IMPORTANT: the Fronius Modbus is DEAD overnight — the connection times out
+  # while the inverter sleeps, so the lifetime counter is UNAVAILABLE at
+  # midnight. A 00:00 snapshot therefore failed and left the baseline stale,
+  # making 'today' accumulate over multiple days. Instead we snapshot the
+  # baseline at MORNING WAKE: the FIRST valid lifetime reading of a new day.
+  # The counter doesn't change overnight, so that first morning value equals
+  # the day's true starting point. today = lifetime_now - baseline.
   # ------------------------------------------------------------------
   - trigger:
-      - platform: time
-        at: "00:00:30"
+      - platform: state
+        entity_id: sensor.fronius_lifetime_energy
+        not_to:
+          - unavailable
+          - unknown
     sensor:
       - name: "Fronius Lifetime At Midnight"
         unique_id: fronius_lifetime_at_midnight
         device_class: energy
         unit_of_measurement: "kWh"
+        # Snapshot only ONCE per day (first valid reading). 'snap_date' guards
+        # against re-snapshotting on every subsequent lifetime tick that day.
         state: >-
-          {% set v = states('sensor.fronius_lifetime_energy') | float(0) %}
-          {% set prev = states('sensor.fronius_lifetime_at_midnight') | float(0) %}
-          {# Only accept a valid, non-decreasing lifetime; else keep the previous
-             baseline so a night-time dropout can't corrupt it. #}
-          {{ v if (v > 0 and v >= prev) else prev }}
+          {% set v = states('sensor.fronius_lifetime_energy') | float(-1) %}
+          {% set today = now().strftime('%Y-%m-%d') %}
+          {% set snapped = this.attributes.get('snap_date', '') %}
+          {% if v > 0 and snapped != today %}{{ v | round(1) }}
+          {% elif this.state not in ['unknown', 'unavailable'] %}{{ this.state }}
+          {% else %}{{ v | round(1) }}{% endif %}
+        attributes:
+          snap_date: >-
+            {% set v = states('sensor.fronius_lifetime_energy') | float(-1) %}
+            {% set today = now().strftime('%Y-%m-%d') %}
+            {% set snapped = this.attributes.get('snap_date', '') %}
+            {% if v > 0 and snapped != today %}{{ today }}{% else %}{{ snapped }}{% endif %}
   - sensor:
       - name: "Fronius Energy Today"
         unique_id: fronius_energy_today
@@ -590,35 +605,44 @@ template:
 
   # ------------------------------------------------------------------
   # DAILY PER-ARRAY TRACKING — Solcast per-site daily forecast vs actual.
-  # Snapshotted at 23:58 (just before the utility_meters reset at midnight),
-  # so each reading is a COMPLETE-day figure that persists and trends day to
-  # day (unlike a live actual/full-forecast ratio, which reads negative until
-  # sunset). Trigger-based template sensors restore their last value on
-  # restart, so the figure holds until the next nightly snapshot.
-  #   delta % = (actual - forecast) / forecast x 100
-  #     0%  = matched Solcast (which already includes your per-site perf factors)
-  #    -ve  = under forecast   +ve = over forecast
-  # Morning is East-dominant (West faces away from the rising sun), so a low
-  # Fronius/East figure on clear, UN-curtailed days isolates the East array
-  # (age / soiling / morning shading). ALWAYS check the 'curtailed_today'
-  # attribute: if true, output was deliberately suppressed and the delta is
-  # NOT a health signal for that day.
+  #   delta % = (actual - forecast) / forecast x 100  (0 = matched, -ve = under)
+  # EAST is captured at DUSK — the moment the Fronius lifetime sensor goes
+  # UNAVAILABLE as the inverter sleeps. The Fronius has NO data overnight, so a
+  # 23:58 snapshot read 0 (=> a bogus -100%). At the dusk transition
+  # trigger.from_state holds the FINAL valid lifetime, so
+  # (last_lifetime - day_start_baseline) = the completed day's East energy.
+  # ALWAYS check 'curtailed_today': if true the delta is NOT a health signal.
   # ------------------------------------------------------------------
   - trigger:
-      - platform: time
-        at: "23:58:00"
+      - platform: state
+        entity_id: sensor.fronius_lifetime_energy
+        to:
+          - unavailable
+          - unknown
     sensor:
       - name: "Fronius Daily Tracking (East)"
         unique_id: fronius_daily_tracking_east
         unit_of_measurement: "%"
         state: >-
+          {% set last = trigger.from_state.state | float(-1) %}
+          {% set base = states('sensor.fronius_lifetime_at_midnight') | float(-1) %}
           {% set fc = states('sensor.solar_wall_solcast_pv_forecast_home_east') | float(0) %}
-          {% set act = states('sensor.fronius_energy_today') | float(0) %}
-          {{ ((act - fc) / fc * 100) | round(0) if fc >= 0.5 else 0 }}
+          {% if last >= 0 and base >= 0 and last >= base and fc >= 0.5 %}
+            {{ (((last - base) - fc) / fc * 100) | round(0) }}
+          {% else %}{{ this.state }}{% endif %}
         attributes:
           forecast_kwh: "{{ states('sensor.solar_wall_solcast_pv_forecast_home_east') | float(0) | round(2) }}"
-          actual_kwh: "{{ states('sensor.fronius_energy_today') | float(0) | round(2) }}"
+          actual_kwh: >-
+            {% set last = trigger.from_state.state | float(-1) %}
+            {% set base = states('sensor.fronius_lifetime_at_midnight') | float(0) %}
+            {{ (last - base) | round(2) if (last >= base) else this.attributes.get('actual_kwh', 0) }}
           curtailed_today: "{{ (states('sensor.output_suppressed_today') | float(0)) > 0.1 }}"
+  # WEST uses the Sungrow NATIVE daily register, which stays readable overnight
+  # (the Sungrow holds its value while idle), so a 23:58 snapshot works fine.
+  - trigger:
+      - platform: time
+        at: "23:58:00"
+    sensor:
       - name: "Sungrow Daily Tracking (West)"
         unique_id: sungrow_daily_tracking_west
         unit_of_measurement: "%"
