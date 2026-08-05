@@ -74,9 +74,28 @@ morning-only comparisons read low even on a healthy array.
   potential) — the likely **summer** ceiling (~60%). Fix = split the strings one
   per MPPT (electrician; DC re-termination). Watch String 1 current: a flat ~12 A
   plateau on a bright day confirms the clip.
-- **Morning shortfall vs forecast** is not shading (clear hilltop east horizon)
-  and not degradation — mostly the Solcast ENE morning-model mismatch plus the
-  West array's morning contribution in the *combined* forecast.
+- **Independent pvlib clear-sky POA check** (Solcast-independent): on a clear
+  moment East ran ~0.78 of physical potential while West ran ~0.99 (same sky,
+  same model = West is the control). That points to a **real ~20% East deficit**,
+  not just a Solcast artifact — consistent with the two-strings-on-one-MPPT
+  mismatch or degradation. Confirm with a full clear-day live run
+  (`poa-check.py`) once the daily-tracking fix has a clean day.
+- Not shading (clear hilltop east horizon). The Solcast ENE morning-model
+  over-prediction is a *separate* forecast-side issue on top of the real deficit.
+
+## Backup reserve / battery control
+- **Only ONE optimiser should control the Powerwall reserve.** We chose
+  **PowerSync**. **Amber SmartShift** was also enabled and kept re-asserting a
+  20% reserve via the Tesla Fleet API, fighting PowerSync's commanded value —
+  the "mystery 20%". Disable SmartShift in the **Amber app**; if it re-enables
+  itself, revoke Amber's **Tesla control authorization** (keeps the price API).
+- PowerSync's reserve **number mirrors the last commanded value**, not a live
+  Gateway read (`sync_now` does not refresh it), and the Tesla app display lags
+  too — so neither is a trustworthy real-time reserve readout. The reliable
+  signal is **battery behaviour** (held/not-discharging while SOC > commanded
+  reserve and importing), which is what `automations/ReserveGuard.yaml` acts on.
+- Stale PowerSync reserve reads are worsened by **resource contention** on the
+  shared HA host — a dedicated host is the intended fix.
 
 ## Dependencies
 - Custom integration: **PowerSync** (Tesla/Amber/Solcast orchestration)
