@@ -70,10 +70,13 @@ morning-only comparisons read low even on a healthy array.
   seen > a single string's current).
 - **All 20 panels are on MPPT1** as two parallel strings (~17 A in full sun);
   MPPT2 is unused (0 V). The Primo's **max usable input current is 12 A per
-  MPPT**, so in strong sun the array current-limits at ~12 A and clips (~30% of
-  potential) — the likely **summer** ceiling (~60%). Fix = split the strings one
-  per MPPT (electrician; DC re-termination). Watch String 1 current: a flat ~12 A
-  plateau on a bright day confirms the clip.
+  MPPT**, so in strong sun MPPT1 current-limits at ~11.5 A and clips the rest.
+  **CONFIRMED (2026-08)** on a clear day: String 1 current holds dead-flat at
+  ~11.5 A across midday while the **DC voltage rises from ~275 V to ~330 V** —
+  the inverter running off-MPP to enforce the current cap (textbook clipping).
+  Loss ~15–30% of the East array in strong sun. Fix = split the strings one per
+  MPPT (electrician; DC re-termination) — engaged. Each string ~10 panels,
+  ~8.6 A / ~310 V, within the Primo's MPPT current and voltage limits.
 - **Independent pvlib clear-sky POA check** (Solcast-independent): on a clear
   moment East ran ~0.78 of physical potential while West ran ~0.99 (same sky,
   same model = West is the control). That points to a **real ~20% East deficit**,
