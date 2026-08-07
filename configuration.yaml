@@ -340,6 +340,24 @@ template:
           {{ states('sensor.fronius_string_2_dc_voltage') not in ['unknown', 'unavailable']
              and states('sensor.fronius_string_2_dc_current') not in ['unknown', 'unavailable'] }}
 
+      # Combined DC input current across both MPPT channels. After the daisy-
+      # chain fix (String 2 enabled) the total is what matters for spotting the
+      # ~12 A-per-channel clip: each channel can now share the array current, so
+      # the total should track true array output rather than pinning at one
+      # channel's 11.5 A ceiling. Sums whichever channels are currently valid so
+      # it stays available if one input reads unavailable at dusk.
+      - name: "Fronius String Total DC Current"
+        unique_id: fronius_string_total_dc_current
+        unit_of_measurement: "A"
+        device_class: current
+        state: >-
+          {% set a1 = states('sensor.fronius_string_1_dc_current') | float(0) %}
+          {% set a2 = states('sensor.fronius_string_2_dc_current') | float(0) %}
+          {{ (a1 + a2) | round(2) }}
+        availability: >-
+          {{ states('sensor.fronius_string_1_dc_current') not in ['unknown', 'unavailable']
+             or states('sensor.fronius_string_2_dc_current') not in ['unknown', 'unavailable'] }}
+
   # ------------------------------------------------------------------
   # Decoded operating state (text) + output-vs-rated indicators.
   # Output % = live AC power / rated (5000 W each). NOTE: this reflects
