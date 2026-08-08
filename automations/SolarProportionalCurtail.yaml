@@ -1,10 +1,12 @@
 alias: Proportional solar curtailment (hold export near zero at negative price)
 description: >-
-  When export price is negative, modulate BOTH inverters' power limit to hold
-  grid power near input_number.solar_curtail_target_kw (default -0.1 kW = a
-  little export allowed), trimming excess solar instead of zeroing it. Restores
-  100% when price is non-negative. Battery is left to PowerSync (kept ~100%);
-  this only throttles solar to control export.
+  When export price is negative, curtail solar ONLY to the extent that we are
+  actually EXPORTING past input_number.solar_curtail_target_kw. If we are not
+  exporting, solar is allowed to ramp up so the surplus charges the battery (at
+  any SOC) or serves the house — it is not thrown away. Curtailment therefore
+  kicks in only when the battery is full (surplus exports) or when surplus
+  exceeds the battery's charge rate (~5 kW). Restores 100% when price is
+  non-negative.
 
   REPLACES the binary "Fallback hard-curtail" automation — disable that one so
   the two don't both write the inverter limit registers.
@@ -26,6 +28,9 @@ actions:
       grid: "{{ states('sensor.grid_power_smoothed') | float(states('sensor.power_sync_grid_power') | float(0)) }}"
       # Battery power: POSITIVE = discharging, negative = charging (confirmed).
       bat: "{{ states('sensor.power_sync_battery_power') | float(0) }}"
+      # Battery state of charge (%) — gates the upward ramp: below full_soc the
+      # loop lets solar rise so the surplus charges the battery.
+      soc: "{{ states('sensor.power_sync_battery_level') | float(0) }}"
       target: "{{ states('input_number.solar_curtail_target_kw') | float(-0.1) }}"
       limit: "{{ states('input_number.solar_curtail_limit') | float(100) }}"
       # Minimum commanded limit (%). Never drive the inverters below this while
@@ -35,6 +40,10 @@ actions:
       # each) keeps both inverters actively generating so neither drops out.
       # The house baseline load comfortably absorbs this floor.
       min_limit: 5
+      # Battery is treated as "full" (no charging headroom) at/above this SOC %.
+      # Below it, the loop lets solar ramp so surplus charges the battery rather
+      # than being curtailed.
+      full_soc: 99
       # Asymmetric ramp tuning (only applies while curtailing at negative price).
       #  DOWN = reducing solar because we're exporting past target -> AGGRESSIVE,
       #         so unwanted export is killed fast.
@@ -54,28 +63,34 @@ actions:
             value_template: "{{ price < 0 }}"
         sequence:
           - variables:
-              # Battery-aware error.  err > 0 => need MORE solar; err < 0 => need LESS.
-              #   (grid - target): +ve when importing / under the export target,
-              #                    -ve when exporting beyond target.
-              #   + max(0, bat):   battery DISCHARGE (bat > 0) counts as "need more
-              #                    solar" so the loop raises output to serve the house
-              #                    instead of draining the battery. Battery CHARGE
-              #                    (bat < 0) is ignored — storing solar is fine at a
-              #                    negative price. This stops the old failure where
-              #                    grid≈0 could be satisfied by solar=0 + battery
-              #                    discharge, trapping solar at zero.
-              err: "{{ (grid - target) + ([0, bat] | max) }}"
+              # Export-limiter error. err = grid - target:
+              #   +ve => importing / under the export target (room for more solar)
+              #   -ve => exporting beyond target (must trim)
+              # No battery term: the release-biased branch below (ramp up UNLESS
+              # actually exporting) lets the battery charge from surplus at any
+              # SOC, and self-heals the old "trapped at zero while the battery
+              # discharges" failure — so the previous max(0,bat) hack is gone.
+              err: "{{ grid - target }}"
               # Asymmetric proportional steps (see tuning knobs above):
               #   down_step: aggressive (high gain/cap) to stop export fast.
-              #   up_step:   gentle (low gain/cap); battery covers the short term.
+              #   up_step:   gentle (low gain/cap); battery/house absorb the rest.
               down_step: "{{ [down_cap, [2, (err | abs) * down_gain] | max] | min }}"
               up_step: "{{ [up_cap, [1, (err | abs) * up_gain] | max] | min }}"
-              # Deadband 0.05 kW — tight tracking; the 30 s grid smoothing keeps
-              # noise well below this so it doesn't hunt. Confirmed good with
-              # target = 0 (zero export): tracks cleanly without excessive jitter.
+              # Release-biased decision (deadband 0.05 kW; 30 s grid smoothing
+              # keeps noise below it):
+              #   EXPORTING (err < -0.05)  -> curtail (aggressive down-ramp).
+              #   else, if IMPORTING (err > 0.05) OR the battery still has room
+              #     (soc < full_soc) OR it is DISCHARGING (bat > 0.1)
+              #                            -> ramp up so the surplus goes into the
+              #                               house/battery (this is what charges
+              #                               a low battery instead of curtailing).
+              #   else (battery full & sitting at the no-export edge) -> hold.
+              # Net: curtails ONLY real export — battery full (scenario 1) or
+              # surplus > battery charge rate (scenario 2, any SOC) — never just
+              # because the battery is charging.
               newlimit: >-
-                {% if err > 0.05 %}{{ [100, (limit + up_step)] | min }}
-                {% elif err < -0.05 %}{{ [min_limit, (limit - down_step)] | max }}
+                {% if err < -0.05 %}{{ [min_limit, (limit - down_step)] | max }}
+                {% elif err > 0.05 or soc < full_soc or bat > 0.1 %}{{ [100, (limit + up_step)] | min }}
                 {% else %}{{ limit }}{% endif %}
           - action: input_number.set_value
             target:
