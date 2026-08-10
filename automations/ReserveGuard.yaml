@@ -30,7 +30,7 @@ triggers:
          and states('sensor.power_sync_battery_power') | float(0) < 0.1
          and is_state('sensor.power_sync_battery_mode', 'normal') }}
     for:
-      minutes: 10
+      minutes: 5
 mode: single
 actions:
   - variables:
