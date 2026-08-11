@@ -559,9 +559,14 @@ template:
             {# W_SF is DYNAMIC and read as a separate register from the mantissa,
                so a poll-timing mismatch yields ~10x spikes (e.g. 31,930 W). AC
                can never exceed the DC input, so bound it by the (clean, V x A)
-               String 1 DC power; if DC isn't ready, fall back to the ~5 kW
+               TOTAL DC power across BOTH MPPT strings. The array is now split
+               10 panels per MPPT (one string each), so String 1 alone is only
+               ~half the input — bounding by String 1 would clip real output to
+               ~50%. Sum both; if DC isn't ready, fall back to the ~5 kW
                inverter ceiling. On a spike, hold the last good value. #}
-            {% set dc = states('sensor.fronius_string_1_dc_power') | float(-1) %}
+            {% set dc1 = states('sensor.fronius_string_1_dc_power') | float(-1) %}
+            {% set dc2 = states('sensor.fronius_string_2_dc_power') | float(-1) %}
+            {% set dc = (dc1 if dc1 > 0 else 0) + (dc2 if dc2 > 0 else 0) %}
             {% set cap = (dc * 1.05) if dc >= 200 else 5100 %}
             {% if p <= cap %}{{ p | round(0) }}
             {% else %}{{ states('sensor.fronius_live_ac_power') | float(0) }}{% endif %}

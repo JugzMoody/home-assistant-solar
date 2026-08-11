@@ -110,11 +110,10 @@ views:
                 unit: kW
                 transform: "return x / 1000;"
           # Fronius per-string DC current + combined total.
-          # Post daisy-chain fix both MPPT channels are enabled and share the
-          # array current (~12 A ceiling PER channel). The Total line is the one
-          # to watch: if it now climbs past a single channel's old ~11.5 A cap
-          # and tracks true array output, the clipping is resolved. Each
-          # individual channel should sit well under 12 A.
+          # Array is now split 10 panels per MPPT (two INDEPENDENT strings), so
+          # each channel MPP-tracks its own string — voltages and currents will
+          # differ between them. Neither should approach the 12 A per-MPPT clip
+          # (each ~8-9 A in full sun). Watch the Total for whole-array output.
           - type: custom:apexcharts-card
             header:
               show: true
@@ -135,12 +134,12 @@ views:
                     text: A
             series:
               - entity: sensor.fronius_string_1_dc_current
-                name: String 1 (all 20 panels)
+                name: String 1 (10 panels, MPPT1)
                 type: line
                 stroke_width: 2
                 color: "#8e24aa"
               - entity: sensor.fronius_string_2_dc_current
-                name: String 2 (2nd MPPT input)
+                name: String 2 (10 panels, MPPT2)
                 type: line
                 stroke_width: 1
                 color: "#b0bec5"
