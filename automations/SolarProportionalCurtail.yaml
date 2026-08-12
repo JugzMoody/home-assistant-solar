@@ -65,32 +65,35 @@ actions:
           - variables:
               # Export-limiter error. err = grid - target:
               #   +ve => importing / under the export target (room for more solar)
-              #   -ve => exporting beyond target (must trim)
-              # No battery term: the release-biased branch below (ramp up UNLESS
-              # actually exporting) lets the battery charge from surplus at any
-              # SOC, and self-heals the old "trapped at zero while the battery
-              # discharges" failure — so the previous max(0,bat) hack is gone.
+              #   -ve => exporting beyond target
               err: "{{ grid - target }}"
+              # Is the battery actively soaking up surplus WITH room to take more?
+              #   charging (bat < -0.1), below its ~5 kW max charge rate
+              #   (bat > -4.8), and not full (soc < full_soc). bat is +ve when
+              #   discharging, -ve when charging. When this is true, any marginal
+              #   "export" is CT noise or a brief transient the battery will
+              #   absorb — so we must NOT trim solar; ramp toward 100% instead.
+              #   (Fixes the loop getting pinned in the ~70s% by noise around
+              #   grid=0 while the battery still had headroom to charge faster.)
+              battery_absorbing: "{{ bat < -0.1 and bat > -4.8 and soc < full_soc }}"
               # Asymmetric proportional steps (see tuning knobs above):
               #   down_step: aggressive (high gain/cap) to stop export fast.
               #   up_step:   gentle (low gain/cap); battery/house absorb the rest.
               down_step: "{{ [down_cap, [2, (err | abs) * down_gain] | max] | min }}"
               up_step: "{{ [up_cap, [1, (err | abs) * up_gain] | max] | min }}"
-              # Release-biased decision (deadband 0.05 kW; 30 s grid smoothing
-              # keeps noise below it):
-              #   EXPORTING (err < -0.05)  -> curtail (aggressive down-ramp).
-              #   else, if IMPORTING (err > 0.05) OR the battery still has room
-              #     (soc < full_soc) OR it is DISCHARGING (bat > 0.1)
-              #                            -> ramp up so the surplus goes into the
-              #                               house/battery (this is what charges
-              #                               a low battery instead of curtailing).
-              #   else (battery full & sitting at the no-export edge) -> hold.
-              # Net: curtails ONLY real export — battery full (scenario 1) or
-              # surplus > battery charge rate (scenario 2, any SOC) — never just
-              # because the battery is charging.
+              # Decision:
+              #   CURTAIL only when EXPORTING (err < -0.05) AND the battery can't
+              #     take the surplus — i.e. full, at its ~5 kW charge ceiling, or
+              #     not charging at all (idle/held). That is REAL export: battery
+              #     full = scenario 1, surplus > battery charge rate = scenario 2.
+              #   RAMP UP toward 100% when the battery is absorbing with room, OR
+              #     we're importing — so surplus charges the battery fast and CT
+              #     noise near zero never trims a healthy charge.
+              #   HOLD only when the battery can't absorb AND we're at the
+              #     no-export edge (prevents hunting once the battery is full).
               newlimit: >-
-                {% if err < -0.05 %}{{ [min_limit, (limit - down_step)] | max }}
-                {% elif err > 0.05 or soc < full_soc or bat > 0.1 %}{{ [100, (limit + up_step)] | min }}
+                {% if err < -0.05 and not battery_absorbing %}{{ [min_limit, (limit - down_step)] | max }}
+                {% elif battery_absorbing or err > 0.05 %}{{ [100, (limit + up_step)] | min }}
                 {% else %}{{ limit }}{% endif %}
           - action: input_number.set_value
             target:
