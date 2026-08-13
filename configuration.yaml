@@ -478,6 +478,29 @@ template:
         availability: "{{ states('sensor.power_sync_current_export_price') not in ['unknown', 'unavailable'] }}"
 
   # ------------------------------------------------------------------
+  # Resilient grid-connection status. The PowerSync LOCAL grid_status/island
+  # entities go 'unknown' whenever the Powerwall-3 local snapshot times out
+  # (frequent — the signed snapshot is polled every 2s with a 15s timeout), so
+  # the dashboard tile bound to sensor.power_sync_grid_status kept showing
+  # blank/red. This falls back to a cloud signal so the tile stays meaningful:
+  #   1. Use the local grid_status when it actually reports Active/Off-Grid.
+  #   2. Else, if live grid-power telemetry is flowing (cloud/meter), we're
+  #      clearly grid-connected -> Active.
+  #   3. Else Unknown.
+  # CAVEAT: during a local-snapshot outage this cannot DETECT a genuine island
+  # event (it reads Active); islanding is rare and the local sensor resolves it
+  # once the snapshot recovers. The tile is for at-a-glance status, not protection.
+  # ------------------------------------------------------------------
+  - sensor:
+      - name: "Grid Connection Status"
+        unique_id: grid_connection_status
+        state: >-
+          {% set gs = states('sensor.power_sync_grid_status') %}
+          {% if gs in ['Active', 'Off-Grid'] %}{{ gs }}
+          {% elif states('sensor.power_sync_grid_power') not in ['unknown', 'unavailable'] %}Active
+          {% else %}Unknown{% endif %}
+
+  # ------------------------------------------------------------------
   # Combined instantaneous solar power (Fronius + Sungrow), in watts.
   # Used for a single "actual" line on the Solcast forecast-vs-actual
   # chart. Defaults each source to 0 when asleep/unreachable so the sum
