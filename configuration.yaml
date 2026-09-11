@@ -208,6 +208,19 @@ modbus:
         state_class: total_increasing
         unit_of_measurement: "kWh"
         scan_interval: 60
+      # Re-added after the config was mangled (this sensor was added after the
+      # last git commit, so the restore didn't include it). VERIFY the scale in
+      # Developer Tools -> States: Sungrow voltage regs are uint16 input regs at
+      # 0.1 V (e.g. 2400 -> 240.0 V). Adjust scale if it reads 10x off.
+      - name: "Sungrow Grid Voltage"
+        slave: 1
+        address: 5038           # Grid phase voltage
+        input_type: input
+        data_type: uint16
+        scale: 0.1
+        precision: 1
+        unit_of_measurement: "V"
+        scan_interval: 10
 
 
 # ==========================================
@@ -700,6 +713,35 @@ template:
           forecast_kwh: "{{ states('sensor.solar_wall_solcast_pv_forecast_home_west') | float(0) | round(2) }}"
           actual_kwh: "{{ states('sensor.sungrow_daily_energy') | float(0) | round(2) }}"
           curtailed_today: "{{ (states('sensor.output_suppressed_today') | float(0)) > 0.1 }}"
+
+  # ------------------------------------------------------------------
+  # WEATHER DASHBOARD — Live Lightning Distance.
+  # The Ecowitt HP2564 reports the last strike's distance but HOLDS that stale
+  # value long after a storm passes, so the raw sensor reads "close" for hours.
+  # This surfaces the distance ONLY if a strike occurred in the last 30 min;
+  # otherwise it pins to 40 km (effectively "clear/out of range"). Also
+  # defaults to 40 when the source is unknown/unavailable.
+  # ------------------------------------------------------------------
+  - sensor:
+      - name: "Live Lightning Distance"
+        unique_id: live_lightning_distance
+        unit_of_measurement: "km"
+        device_class: distance
+        state: >
+          {% set last_strike = states('sensor.hp2564ca_pro_v2_1_4_last_lightning_strike') %}
+          {% set distance = states('sensor.hp2564ca_pro_v2_1_4_lightning_strike_distance') | float(40) %}
+          {% if last_strike not in ['unknown', 'unavailable', 'None'] %}
+            {% set strike_time = as_timestamp(last_strike) %}
+            {% set time_now = as_timestamp(now()) %}
+            {# If the last strike was within the last 30 minutes (1800 seconds) #}
+            {% if (time_now - strike_time) < 1800 %}
+              {{ distance }}
+            {% else %}
+              40
+            {% endif %}
+          {% else %}
+            40
+          {% endif %}
 
 
 # ==========================================

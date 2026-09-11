@@ -1,0 +1,131 @@
+views:
+  - title: Weather Station
+    path: weather_station
+    type: sidebar
+    cards:
+      - type: weather-forecast
+        entity: weather.forecast_home
+        name: Local Weather Forecast
+        show_current: true
+        show_forecast: true
+        secondary_info_attribute: humidity
+        forecast_type: daily
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: custom:windrose-card
+            title: Wind Direction History
+            refresh_interval: 60
+            data_period:
+              period_back: -4h
+            max_speed: 30
+            speed_unit: knots
+            direction_segments: 16
+            wind_direction_entity:
+              entity: sensor.hp2564ca_pro_v2_1_4_wind_direction
+              use_statistics: false
+            windspeed_entities:
+              - entity: sensor.hp2564ca_pro_v2_1_4_wind_speed
+                name: Speed
+                speed_unit: knots
+                output_speed_unit: knots
+                speed_range_beaufort: false
+                use_statistics: false
+                speed_ranges:
+                  - from_value: 0
+                    color: '#2196f3'
+                  - from_value: 4
+                    color: '#4caf50'
+                  - from_value: 11
+                    color: '#ffeb3b'
+                  - from_value: 16
+                    color: '#ff9800'
+                  - from_value: 22
+                    color: '#f44336'
+          - type: grid
+            columns: 1
+            square: false
+            cards:
+              - type: custom:sensor-bar-card-plus
+                title: ⚡ LIVE STORM INBOUND PROXIMITY
+                entity: sensor.live_lightning_distance
+                min: 40
+                max: 0
+                invert_direction: false
+                icon: mdi:home-lightning-bolt
+                unit: km away
+                severity:
+                  - from: 25.1
+                    to: 40
+                    color: '#ffeb3b'
+                  - from: 10.1
+                    to: 25
+                    color: '#ff9800'
+                  - from: 0
+                    to: 10
+                    color: '#f44336'
+              - type: custom:mini-graph-card
+                title: Lightning Strike Activity (24h)
+                entities:
+                  - entity: sensor.hp2564ca_pro_v2_1_4_lightning_strikes
+                    name: Strikes Count
+                    color: '#ffeb3b'
+                hours_to_show: 24
+                lower_bound: 0
+                upper_bound: 10
+                aggregate_func: max
+                group_by: hour
+                show:
+                  graph: line
+                  fill: false
+                  icon: true
+                  legend: false
+                  extrema: false
+                  labels: false
+              - type: entity
+                entity: sensor.hp2564ca_pro_v2_1_4_last_lightning_strike
+                name: Last Detected Event
+                icon: mdi:clock-alert-outline
+              - type: custom:mini-graph-card
+                title: 24h Temperature & Dewpoint
+                hours_to_show: 24
+                line_width: 3
+                points_per_hour: 2
+                entities:
+                  - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
+                    name: Temp
+                    color: '#ff5722'
+                  - entity: sensor.hp2564ca_pro_v2_1_4_dewpoint
+                    name: Dew Point
+                    color: '#00bcd4'
+              - type: history-graph
+                title: Rain Timeline & Total Accumulation
+                entities:
+                  - entity: sensor.hp2564ca_pro_v2_1_4_hourly_rain_piexo
+                    name: Active Showers Timeline
+                  - entity: sensor.hp2564ca_pro_v2_1_4_daily_rain_piezo
+                    name: Day Total Accumulated
+                hours_to_show: 24
+                refresh_interval: 0
+              - type: grid
+                title: ☀️ Solar & UV Conditions
+                columns: 2
+                square: false
+                cards:
+                  - type: gauge
+                    entity: sensor.hp2564ca_pro_v2_1_4_uv_index
+                    name: UV Index
+                    min: 0
+                    max: 11
+                    needle: true
+                    severity:
+                      green: 0
+                      yellow: 3
+                      amber: 6
+                      red: 8
+                  - type: gauge
+                    entity: sensor.hp2564ca_pro_v2_1_4_solar_radiation
+                    name: Solar Radiation
+                    min: 0
+                    max: 1000
