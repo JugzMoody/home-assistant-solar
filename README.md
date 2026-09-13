@@ -100,6 +100,94 @@ morning-only comparisons read low even on a healthy array.
 - Stale PowerSync reserve reads are worsened by **resource contention** on the
   shared HA host — a dedicated host is the intended fix.
 
+## Surplus diversion (soak loads instead of curtailing)
+Context: curtailment is frequent (applied inverter limit drops to ~5% on most
+sunny days) to avoid negative feed-in. Reconstructed *potential* generation vs
+measured showed **~17% of generation lost to curtailment** over a 13-day
+late-winter sample (up to 37–44% on the best days), i.e. ~7 kWh/day of surplus
+that is currently wasted. Diverting it to a load is worth more than exporting at
+a negative price. Priority order for surplus should be:
+**battery charge → hot water → A/C pre-cool → curtail only the residual.**
+
+### Heat pump hot water (Rheem, no external controls)
+- Only control is the unit's **built-in timer**; there is no comms/PV input, so
+  heating cannot be *commanded* — the tank only heats when it is below setpoint.
+- Old schedule was **3am–4pm**: the 4pm cutoff existed to avoid peak pricing.
+  That cutoff is the root of two problems:
+  - **3am is the worst time to heat** — coldest ambient air = lowest COP, and it
+    is paid grid import (~19.66c off-peak).
+  - **Reheat hysteresis + a fixed cutoff can strand the tank part-charged**: if
+    it sits just above the reheat threshold at 4pm it won't cycle, then evening
+    showers draw it down and it is locked out until 3am. Rheem declined to add a
+    "top up to full before cutoff" behaviour.
+- Measured overnight load (00:00–07:00) averages **6.63 kWh/day** with a bump
+  from 04:00 peaking 05:00–06:00 — **~2.2 kWh/day above baseline**, attributed
+  to the HPWH (cannot be cleanly separated from morning household load without a
+  dedicated CT on that circuit). At 19.66c that is roughly **$110–160/yr** of
+  grid import that could instead come from curtailed surplus.
+- **Change made: timer window shifted to 9am–4pm** so heating lands in the solar
+  window at the best COP of the day. Deliberately **no evening reheat window** —
+  the choice is to preserve battery capacity for overnight house load rather than
+  spend it reheating water.
+  - Accepted trade-off: a heavy shower night can leave a cooler tank by morning.
+  - If a post-shower top-up is ever wanted, use a **post-peak** slot (after
+    8–9pm), not during peak — ~2 kWh at 41.72c would be worse than the 3am run.
+- Future option (needs a licensed electrician): **contactor/relay on the HPWH
+  circuit** (or a Catch Power Relay) so HA can gate power on *actual* surplus,
+  plus a **strap-on tank temp sensor** for visibility. Worth checking the Rheem
+  model for a hidden PV/dry-contact input. Caution: do not gate power so
+  aggressively that the unit cannot run its periodic **legionella/sanitisation**
+  high-temperature cycle.
+
+### Sensibo A/C (integrated — 4 units, all bedrooms)
+Integration confirmed live in HA. Entity IDs are **named by room, not by
+integration** (a `find sensibo` search returns nothing — search the `climate`
+domain instead):
+
+| Entity | Room |
+|---|---|
+| `climate.bedroom_bedroom` | Bedroom |
+| `climate.brianna_brianna` | Brianna |
+| `climate.tyler_tyler` | Tyler |
+| `climate.cate_cate` | Cate |
+
+- Capabilities: modes `cool` / `heat` / `dry` / `fan_only` / `heat_cool` / `off`;
+  target **16–31°C**, 1° step; fan `quiet`…`strong`; swing + horizontal swing.
+- Each unit reports **`current_temperature` and `current_humidity`**, so
+  automations can close the loop on real room temperature, not just commanded
+  state. Also exposed per unit: `switch.*_timer` (+ `sensor.*_timer_end_time`),
+  `switch.*_climate_react`, `binary_sensor.*_filter_clean_required`,
+  `button.*_reset_filter`, `update.*_firmware`.
+- **No A/C in the living areas** (confirmed) — a lounge-room unit may be
+  installed later. This matters: pre-cooling pays best in the space occupied
+  *during* the 4–9pm peak. With bedroom-only coverage the useful variant is a
+  **late-window bedroom pre-cool** (~1pm–4pm) so rooms start the night cooler and
+  the overnight A/C draw on the battery is reduced.
+- **All four filters currently report `filter_clean_required = on`** (last reset
+  2026-01-08). Dirty filters cut airflow and COP — clean them before relying on
+  A/C as a soak load, then clear via `button.*_reset_filter`.
+
+Pros of A/C soak: COP ~3–4 (1 kW electrical ≈ 3–4 kW cooling); avoids the
+negative-export charge *and* the curtailment loss; no new hardware; preserves
+battery for the night by shifting cooling earlier.
+
+Cons / design constraints:
+- Thermal mass is small and leaky — holds cool for **hours, not days**; soak late
+  in the window or the benefit is gone by evening. Modest setpoints (22–23°C).
+- **Coarse dump load** (~0.5–2 kW per head, on/off) — it reduces curtailment but
+  cannot finely track export to zero like the Modbus inverter control; the
+  residual still needs curtailing.
+- **Short-cycling risk**: needs entry hysteresis (only engage once export price is
+  negative by a margin), a **15–30 min minimum run time**, and a wider turn-off
+  threshold so price wobble doesn't stop/start the compressor.
+- **Sensibo is cloud + IR**: command latency and occasional failures; no true
+  compressor-state feedback (only what was commanded).
+- **Sequencing**: gate the A/C on the same "battery can't absorb more" condition
+  that `automations/SolarProportionalCurtail.yaml` already computes, so the two
+  automations don't oscillate against each other.
+- Snapshot/restore prior climate state when the soak window ends; stagger heads
+  so load ramps in steps; set a room-temp floor (~21°C).
+
 ## Dependencies
 - Custom integration: **PowerSync** (Tesla/Amber/Solcast orchestration)
 - Solcast HA integration (`ha-solcast-solar`)
