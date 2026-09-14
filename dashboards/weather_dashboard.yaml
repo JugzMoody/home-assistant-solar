@@ -398,6 +398,40 @@ views:
             show_forecast: true
             secondary_info_attribute: humidity
             forecast_type: daily
+            # This is a CORE HA card, and unlike the glance cards its whole tree
+            # lives in ONE shadow root (no per-item nested roots), so plain
+            # card-mod styles work — no '$' piercing needed.
+            # NOTE: `div.temp` exists BOTH in the current-conditions block and in
+            # each forecast item, so the two are scoped separately below.
+            # Increases are kept modest: this card governs the height of the
+            # final row, and the page has zero headroom at 1920px.
+            card_mod:
+              style: |
+                .state {
+                  font-size: 24px !important;
+                  font-weight: 700 !important;
+                }
+                .name {
+                  font-size: 15px !important;
+                }
+                .temp-attribute .temp {
+                  font-size: 24px !important;
+                  font-weight: 700 !important;
+                }
+                .attribute {
+                  font-size: 15px !important;
+                }
+                .forecast-item-label {
+                  font-size: 15px !important;
+                  font-weight: 600 !important;
+                }
+                .forecast-item .temp {
+                  font-size: 19px !important;
+                  font-weight: 700 !important;
+                }
+                .forecast-item .templow {
+                  font-size: 16px !important;
+                }
 
       # ======================================================================
       # ROW 4b — STATION HEALTH. Last and small, but it matters: a flat sensor
