@@ -99,7 +99,6 @@ views:
       - type: grid
         cards:
           - type: grid
-            title: ☀️ UV & Free Power
             columns: 2
             square: false
             cards:
@@ -573,23 +572,43 @@ views:
                    'last_quarter': '🌓',
                    'waning_crescent': '🌒' } %}
               # ↑ {{ as_timestamp(rise) | timestamp_custom('%H:%M') }}   ↓ {{ as_timestamp(set_) | timestamp_custom('%H:%M') }}
-              {{ em.get(p, '🌙') }} {{ p | replace('_', ' ') | title }}
+              ## {{ em.get(p, '🌙') }}
+              {{ p | replace('_', ' ') | title }}
             card_mod:
+              # The rendered markdown (h1/h2/p) lives inside ha-markdown's OWN
+              # shadow root, so `ha-card h2` cannot reach it - that is why the
+              # earlier rules did nothing. `ha-markdown$` pierces that boundary
+              # (card-mod syntax); `.` targets the card itself.
               style:
+                ha-markdown$: |
+                  h1 {
+                    /* sunrise / sunset times */
+                    font-size: 30px !important;
+                    font-weight: 700 !important;
+                    line-height: 1.2 !important;
+                    margin: 0 0 2px 0 !important;
+                    border-bottom: none !important;
+                    text-align: center !important;
+                  }
+                  h2 {
+                    /* the moon glyph, alone on its line so it can be sized
+                       independently. Row 4 has ~100px of slack to grow into. */
+                    font-size: 100px !important;
+                    line-height: 1.0 !important;
+                    margin: 0 !important;
+                    border-bottom: none !important;
+                    font-weight: 400 !important;
+                    text-align: center !important;
+                  }
+                  p {
+                    /* phase name */
+                    font-size: 20px !important;
+                    font-weight: 600 !important;
+                    margin: 2px 0 0 0 !important;
+                    text-align: center !important;
+                  }
                 .: |
                   ha-card {
                     text-align: center !important;
                     --ha-card-header-font-size: 22px;
-                  }
-                  ha-card h1 {
-                    font-size: 30px !important;
-                    font-weight: 700 !important;
-                    line-height: 1.2 !important;
-                    margin: 2px 0 4px 0 !important;
-                    border-bottom: none !important;
-                  }
-                  ha-card p {
-                    font-size: 20px !important;
-                    font-weight: 600 !important;
-                    margin: 0 !important;
                   }
