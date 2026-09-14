@@ -139,6 +139,100 @@ a negative price. Priority order for surplus should be:
   aggressively that the unit cannot run its periodic **legionella/sanitisation**
   high-temperature cycle.
 
+### HPWH control plan (recommended, not yet implemented)
+Constraints confirmed with the vendor/unit: **280 L Rheem heat pump**, threshold
+**50 °C**, max **60 °C**, both **locked in firmware** for the energy rating. No
+comms/PV input. The built-in timer supports **only ONE start/stop window**, so
+"solar window + morning top-up" cannot be expressed with the timer alone.
+
+Physics for this tank: 1 °C ≈ **0.33 kWh thermal**; at ~3 kW thermal that is
+**~6.5 min per °C**. A full 40→60 °C reheat ≈ 2.2 kWh electrical.
+Standing loss is small (~2 kWh/day ≈ **0.25 °C/hour**), so an idle tank holds
+overnight; big overnight drops are USAGE, not loss.
+
+**Price reality (live Amber forecast + 13-day history) — evening reheat is NOT cheaper:**
+
+| Window | Import price |
+|---|---|
+| 7:30–9 pm | ~31–35 c/kWh (worst) |
+| price cliff | ~9:20 pm, drops to ~16 c |
+| 1–3 am | ~15.9 c (overnight low) |
+| 5 am | ~16.7 c |
+| **midday** | **~9 c (cheapest of the day)** |
+
+So: never reheat in the evening peak; a cloudy-day top-up is CHEAPEST at midday,
+not overnight. Morning grid top-up ≈ 37c for a full reheat.
+
+**Solar crossover (measured, 12 days mid-Sep):** generation overtakes house load
+at **~7:30 am** (median), and surplus reliably exceeds **1 kW at ~8:10-8:25 am**
+— i.e. the earliest the ~1 kW compressor can run entirely on solar. Both shift
+earlier toward summer; re-measure with `solar-crossover.py`.
+
+**The core insight — park the tank UNDER the 50 °C threshold.** If a morning
+grid run takes the tank above 50 °C, the unit will NOT heat when solar arrives,
+wasting the free window. So a morning top-up should stop at ~45–46 °C: enough
+for the first shower, still below threshold, leaving the rest for free solar.
+
+**Target design (needs a relay + sensor):**
+1. Keep the built-in timer set WIDE (e.g. 5 am–4 pm) as a **fail-safe** so a
+   HA/relay/network failure can never run the unit in the evening peak. Prefer a
+   **normally-closed** relay so an HA outage fails to *powered* (hot water) not
+   *off*.
+2. **Morning:** time-gated (from ~4:45 am) AND temp < 45 °C -> power on; off at
+   ~45–46 °C or a max runtime. Do NOT trigger on temperature alone or it fires
+   at 10 pm after the showers.
+3. **Solar:** re-enable on measured surplus (>= ~1 kW sustained ~10 min), not
+   clock time; let it run to 60 °C for free.
+4. **Cloudy fallback:** if still low by ~1 pm, allow grid heating — midday is the
+   cheapest grid energy of the day (~9 c).
+5. **Guards:** compressor anti-short-cycle lockout is typically 3–10 min after
+   power-up (so a 30-min window may only deliver ~20–25 min of heating); add
+   min on/off times ~15 min. Ensure periodic full 60 °C cycles for legionella.
+
+**Sensing — outer casing is NOT usable.** The tank is inner steel / PU foam /
+outer jacket, so the casing sits near ambient (confirmed by touch); a strap-on
+there measures room temperature. Options:
+- **Best practical:** DS18B20 cable-tied to the **hot outlet pipe hard against
+  the tank, lagged over the top**. Doubles as (a) approximate top-of-tank temp
+  and (b) a **draw detector** — the pipe goes hot whenever water flows, so
+  summing "hot minutes after 4 pm" quantifies evening usage and can warn at
+  9 pm that tomorrow morning will be short. Absolute at-rest reading is soft
+  (drifts toward ambient); the draw detection is robust.
+- Under-jacket probe: usually inaccessible on a heat pump (compressor on top).
+- Do NOT tap the unit's own thermistor (warranty + live control circuit).
+- Expect strong **stratification** (community example: 54/45/31 °C at three
+  heights on one tank), so thresholds are sensor-position-specific — calibrate
+  against the unit's display over several days before trusting automation.
+
+**Recommended hardware:** Shelly Plus 1PM (switching + power monitoring) +
+**Shelly Plus Add-On** (galvanically isolated 1-Wire, up to 5 DS18B20) + one
+DS18B20 3 m probe. One device does control, energy metering and temperature; it
+sits in the enclosure on permanent mains with a native HA integration and no
+firmware to compile. ESP32/ESP8266 + ESPHome is the DIY alternative but needs
+its own PSU and weatherproofing.
+Payback on energy alone is modest (~1.5–2 kWh/day shifted from ~16.7 c grid to
+free solar ≈ **$90–110/yr** vs ~$200–350 installed). The real wins are a
+guaranteed first shower and using surplus that is currently curtailed.
+
+**LIMITATION of power-monitoring alone:** it CANNOT detect the evening
+drawdown — with the unit unpowered overnight there is no compressor signal, so a
+heavy-shower night looks identical to an unused one. It also cannot implement a
+"stop at 45 °C" rule (the unit only signals at 60 °C, when it stops). Power
+metering gives verification, cost, and a reliable "tank now full" signal; the
+temperature/draw sensor is what makes the design work.
+
+**MEASURED ANOMALY (2026-09-14): the timer clock appears to be ~1h20m late.**
+With the timer believed set to 3 am, 20 days of `sensor.power_sync_home_load`
+show the 3–4 am band flat at **0.65 kW** — identical to the 2–3 am baseline. The
+compressor step actually appears at **~4:20 am** (0.61 -> 1.02 kW), on 13 of 20
+days between 04:10 and 04:50. Either the unit's internal clock is wrong/drifted,
+or it was not below threshold until then (less likely — a thermostat-driven
+start would scatter more). **Verify the unit's displayed clock before trusting
+any timer setting**: a "5 am" setting may really start ~6:20 am, too late for the
+first shower. Two days (Aug 30, Sep 13) show no morning run at all, consistent
+with the tank still being above 50 °C after light usage.
+Reproduce with `hpwh-spike.py` (in `c:\Users\john\Code`, outside this repo).
+
 ### Sensibo A/C (integrated — 4 units, all bedrooms)
 Integration confirmed live in HA. Entity IDs are **named by room, not by
 integration** (a `find sensibo` search returns nothing — search the `climate`
