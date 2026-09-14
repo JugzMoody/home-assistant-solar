@@ -591,11 +591,15 @@ views:
                     text-align: center !important;
                   }
                   h2 {
-                    /* the moon glyph, alone on its line so it can be sized
-                       independently. Row 4 has ~100px of slack to grow into. */
-                    font-size: 100px !important;
-                    line-height: 1.0 !important;
-                    margin: 0 !important;
+                    /* The moon glyph, alone on its line so it can be sized
+                       independently. 80px (was 100px): at 100px with
+                       line-height 1.0 the emoji's ascender overflowed its line
+                       box upward and collided with the sunset arrow in the h1
+                       above. Slightly looser line-height + a top margin keep it
+                       clear. */
+                    font-size: 80px !important;
+                    line-height: 1.15 !important;
+                    margin: 6px 0 0 0 !important;
                     border-bottom: none !important;
                     font-weight: 400 !important;
                     text-align: center !important;
