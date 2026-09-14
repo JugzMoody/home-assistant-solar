@@ -33,9 +33,9 @@ views:
     max_columns: 2
     sections:
       # ======================================================================
-      # ROW 1a — RIGHT NOW. The hero card: most important to read at distance.
+      # ROW 1a - RIGHT NOW. The hero card: most important to read at distance.
       # The two rain tiles (Raining? / Rain Rate) were folded in here as
-      # entities 5 and 6 — as separate tile cards they added two more card
+      # entities 5 and 6 - as separate tile cards they added two more card
       # borders and padding blocks for two small values.
       # 3 columns x 2 rows keeps the numbers large.
       # ======================================================================
@@ -64,7 +64,7 @@ views:
               # IMPORTANT: in this HA version each glance `div.entity` has its
               # OWN shadow root containing `div.name` (label) and a bare `div`
               # (the value). A selector written from the card's root therefore
-              # CANNOT reach them — verified by DOM inspection. The `$` suffix
+              # CANNOT reach them - verified by DOM inspection. The `$` suffix
               # is card-mod's shadow-root piercing syntax; `.` targets the card.
               style:
                 .entity$: |
@@ -81,7 +81,7 @@ views:
                     white-space: nowrap !important;
                   }
                 # Rain Rate is the last cell and its value ("0.0 mm/h") is the
-                # widest string on the card — it still clipped at 26px (needed
+                # widest string on the card - it still clipped at 26px (needed
                 # 113px in a 102px cell). Shrink ONLY that cell rather than
                 # dropping the whole hero card down a size for one outlier.
                 .entity:last-child$: |
@@ -94,7 +94,7 @@ views:
                   }
 
       # ======================================================================
-      # ROW 1b — SUN / UV (short, pairs with Right Now)
+      # ROW 1b - SUN / UV (short, pairs with Right Now)
       # ======================================================================
       - type: grid
         cards:
@@ -109,7 +109,7 @@ views:
                 min: 0
                 max: 11
                 needle: true
-                # FIXED: removed 'amber: 6' — the HA gauge card only accepts
+                # FIXED: removed 'amber: 6' - the HA gauge card only accepts
                 # green / yellow / red severity keys; 'amber' was invalid.
                 severity:
                   green: 0
@@ -129,7 +129,7 @@ views:
               # is artificially throttled (down to ~5%), so `solar - load` reads
               # LOW exactly when spare capacity is HIGHEST. Curtailment is
               # therefore treated as an explicit "yes" rather than being fed
-              # through the arithmetic — otherwise the light would show red on
+              # through the arithmetic - otherwise the light would show red on
               # the sunniest days.
               #
               # Late-day guard: plenty of spare but little sun left AND a low
@@ -137,7 +137,7 @@ views:
               # carry the house through the evening peak.
               # ================================================================
               - type: markdown
-                content: >-
+                content: |-
                   {% set solar = states('sensor.total_solar_power') | float(0) / 1000 %}
                   {% set load = states('sensor.power_sync_home_load') | float(0) %}
                   {% set spare = solar - load %}
@@ -146,23 +146,26 @@ views:
                   {% set remain = states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) %}
                   {% set save_for_tonight = (remain < 3 and soc < 60) %}
                   {% if curtail %}
-                  # YES
-                  Loads of spare — panels are throttled back
+                  {% set head = 'YES' %}
+                  {% set detail = 'Loads of spare - panels throttled back' %}
                   {% elif spare >= 1.0 and not save_for_tonight %}
-                  # YES
-                  **{{ spare | round(1) }} kW** spare right now
+                  {% set head = 'YES' %}
+                  {% set detail = (spare | round(1)) ~ ' kW spare right now' %}
                   {% elif spare >= 1.0 and save_for_tonight %}
-                  {# Must be tested BEFORE the generic 'spare >= 0.2' branch,
-                     otherwise this more useful message is unreachable. #}
-                  # A LITTLE
-                  Saving charge for tonight
+                  {% set head = 'A LITTLE' %}
+                  {% set detail = 'Saving charge for tonight' %}
                   {% elif spare >= 0.2 %}
-                  # A LITTLE
-                  **{{ spare | round(1) }} kW** spare — small things only
+                  {% set head = 'A LITTLE' %}
+                  {% set detail = (spare | round(1)) ~ ' kW spare - small things only' %}
+                  {% elif solar < 0.1 %}
+                  {% set head = 'On Battery' %}
+                  {% set detail = '' %}
                   {% else %}
-                  # NOT NOW
-                  {% if solar < 0.1 %}No sun — running on battery{% else %}House is using it all{% endif %}
+                  {% set head = 'NOT NOW' %}
+                  {% set detail = 'House is using it all' %}
                   {% endif %}
+                  # {{ head }}
+                  {{ detail }}
                 card_mod:
                   # The colour has to re-derive the same tiers as the content
                   # above (card-mod styles are evaluated separately from card
@@ -189,21 +192,24 @@ views:
                       color: #ffffff !important;
                     }
                     ha-card h1 {
-                      font-size: 40px !important;
+                      /* 32px, not 40px: "A LITTLE" (8 chars) wrapped at 40px in
+                         this narrow half-column card. */
+                      font-size: 32px !important;
                       font-weight: 800 !important;
-                      line-height: 1.1 !important;
-                      margin: 2px 0 4px 0 !important;
+                      line-height: 1.15 !important;
+                      margin: 2px 0 6px 0 !important;
                       border-bottom: none !important;
                       color: #ffffff !important;
                     }
                     ha-card p {
-                      font-size: 15px !important;
+                      font-size: 16px !important;
+                      line-height: 1.3 !important;
                       margin: 0 !important;
                       color: #ffffff !important;
                     }
 
       # ======================================================================
-      # ROW 2a — STORM WATCH: lightning proximity, activity, last event.
+      # ROW 2a - STORM WATCH: lightning proximity, activity, last event.
       # ======================================================================
       - type: grid
         cards:
@@ -254,7 +260,7 @@ views:
             # renders as a sensible flat line instead of a stack of tiny blips
             # at the bottom, BUT still expands if a storm exceeds 10/hour (a
             # hard `upper_bound: 10` would clip the peak of a real storm).
-            # Must be QUOTED — bare ~10 risks parsing as YAML null.
+            # Must be QUOTED - bare ~10 risks parsing as YAML null.
             lower_bound: 0
             upper_bound: '~10'
             show:
@@ -317,7 +323,7 @@ views:
                   }
 
       # ======================================================================
-      # ROW 2b — WIND (tall, pairs with Storm Watch)
+      # ROW 2b - WIND (tall, pairs with Storm Watch)
       # ======================================================================
       - type: grid
         cards:
@@ -352,11 +358,11 @@ views:
                     color: '#f44336'
 
       # ======================================================================
-      # ROW 3a — TEMPERATURE (medium)
+      # ROW 3a - TEMPERATURE (medium)
       # ======================================================================
       - type: grid
         cards:
-          # Outside temperature only — dewpoint removed (little practical value
+          # Outside temperature only - dewpoint removed (little practical value
           # in Brisbane). `show.extrema: true` adds the 24h HIGH/LOW badges
           # (with their timestamps) which is the "tag" we want; height 120 so
           # they have room. font_size scales the big current-value number.
@@ -378,7 +384,7 @@ views:
               legend: false
               extrema: true
               labels: false
-          # Inside vs outside — "should we open the windows?"
+          # Inside vs outside - "should we open the windows?"
           - type: glance
             title: Inside vs Outside
             show_icon: false
@@ -413,7 +419,7 @@ views:
                   }
 
       # ======================================================================
-      # ROW 3b — RAIN (medium, pairs with Temperature)
+      # ROW 3b - RAIN (medium, pairs with Temperature)
       # ======================================================================
       - type: grid
         cards:
@@ -422,13 +428,13 @@ views:
             hours_to_show: 24
             entities:
               # FIXED: was '..._hourly_rain_piexo' (typo) so this series never
-              # rendered — the legend only ever showed the daily total.
+              # rendered - the legend only ever showed the daily total.
               - entity: sensor.hp2564ca_pro_v2_1_4_hourly_rain_piezo
                 name: Active Showers Timeline
               - entity: sensor.hp2564ca_pro_v2_1_4_daily_rain_piezo
                 name: Day Total Accumulated
           # Rainfall context at a glance (garden / tank decisions). Icons hidden
-          # — all four were the same cloud glyph, pure vertical padding.
+          # - all four were the same cloud glyph, pure vertical padding.
           - type: glance
             title: Rainfall Totals
             show_icon: false
@@ -467,7 +473,7 @@ views:
                   }
 
       # ======================================================================
-      # ROW 4a — FORECAST. Below the live data: the station's own readings are
+      # ROW 4a - FORECAST. Below the live data: the station's own readings are
       # what this display is for; the forecast is supporting context.
       # ======================================================================
       - type: grid
@@ -481,7 +487,7 @@ views:
             forecast_type: daily
             # This is a CORE HA card, and unlike the glance cards its whole tree
             # lives in ONE shadow root (no per-item nested roots), so plain
-            # card-mod styles work — no '$' piercing needed.
+            # card-mod styles work - no '$' piercing needed.
             # NOTE: `div.temp` exists BOTH in the current-conditions block and in
             # each forecast item, so the two are scoped separately below.
             # Increases are kept modest: this card governs the height of the
@@ -515,10 +521,10 @@ views:
                 }
 
       # ======================================================================
-      # ROW 4b — STATION HEALTH. Last and small, but it matters: a flat sensor
+      # ROW 4b - STATION HEALTH. Last and small, but it matters: a flat sensor
       # battery makes the station silently report "no lightning / no rain"
       # rather than an error. WH57 = lightning sensor, WH90 = outdoor array.
-      # Icons KEPT here — the battery glyph is genuinely informative.
+      # Icons KEPT here - the battery glyph is genuinely informative.
       # ======================================================================
       - type: grid
         cards:
