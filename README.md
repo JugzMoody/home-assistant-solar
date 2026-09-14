@@ -221,16 +221,35 @@ heavy-shower night looks identical to an unused one. It also cannot implement a
 metering gives verification, cost, and a reliable "tank now full" signal; the
 temperature/draw sensor is what makes the design work.
 
-**MEASURED ANOMALY (2026-09-14): the timer clock appears to be ~1h20m late.**
-With the timer believed set to 3 am, 20 days of `sensor.power_sync_home_load`
-show the 3–4 am band flat at **0.65 kW** — identical to the 2–3 am baseline. The
-compressor step actually appears at **~4:20 am** (0.61 -> 1.02 kW), on 13 of 20
-days between 04:10 and 04:50. Either the unit's internal clock is wrong/drifted,
-or it was not below threshold until then (less likely — a thermostat-driven
-start would scatter more). **Verify the unit's displayed clock before trusting
-any timer setting**: a "5 am" setting may really start ~6:20 am, too late for the
-first shower. Two days (Aug 30, Sep 13) show no morning run at all, consistent
-with the tank still being above 50 °C after light usage.
+**MEASURED (2026-09-14): the HPWH is INVISIBLE in whole-house load, and the
+3 am start was doing almost nothing.**
+20 days of `sensor.power_sync_home_load` show the 3–4 am band flat at
+**0.65 kW** — identical to the 2–3 am baseline — despite the timer being set to
+3 am. There is a clear step at ~4:20 am rising to ~1.6 kW by 5–6 am, but that is
+**household activity, not the compressor**:
+
+| band | weekday | weekend | diff |
+|---|---|---|---|
+| 3–4 am | 0.65 kW | 0.68 kW | +0.03 (identical) |
+| 4–6 am | 1.31 kW | 0.95 kW | **−0.36 (weekends lower)** |
+
+A timer-driven load cannot know it is the weekend, so the 4–6 am rise is people
+(showers/kettle/coffee). The 3–4 am band — which *would* show a timer load — is
+flat. (An earlier note here hypothesised a ~1h20m timer clock offset; that was
+WRONG. The owner verified the clock is accurate, and the weekday/weekend split
+explains the pattern. Still worth re-checking the clock occasionally.)
+
+**Why 3 am did nothing:** standing loss is only ~0.25 °C/h, so a tank at 59 °C
+at 4 pm is still ~56 °C at 3 am — **above the 50 °C threshold**, so the unit had
+no reason to run. It would only fire once the MORNING showers pulled it below
+50 °C, i.e. ~6–8 am, which coincides with the ~7:30 am solar crossover. So the
+system was probably already getting some solar heating, and a cold-shower
+morning is the exception (unusually heavy evening use) rather than the norm.
+
+**Consequence:** a ~0.4–1 kW compressor cannot be separated from household noise
+in whole-house data. Per-circuit metering (the Shelly 1PM) is required to know
+when the unit actually runs — this is the strongest practical reason to fit it,
+ahead of any control benefit.
 Reproduce with `hpwh-spike.py` (in `c:\Users\john\Code`, outside this repo).
 
 ### Sensibo A/C (integrated — 4 units, all bedrooms)
