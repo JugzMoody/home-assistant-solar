@@ -532,31 +532,64 @@ views:
                 }
 
       # ======================================================================
-      # ROW 4b - STATION HEALTH. Last and small, but it matters: a flat sensor
-      # battery makes the station silently report "no lightning / no rain"
-      # rather than an error. WH57 = lightning sensor, WH90 = outdoor array.
-      # Icons KEPT here - the battery glyph is genuinely informative.
+      # ROW 4b - SUN & MOON (replaced the Station Health glance).
+      #
+      # WHAT WAS REMOVED: Station Health showed WH57 (lightning sensor) and
+      # WH90 (outdoor array) battery levels. That check still MATTERS - a flat
+      # sensor battery makes the station silently report "no lightning / no
+      # rain" instead of erroring - so it is better served by an ALERT than by
+      # permanent dashboard space. See README.
+      #
+      # Built as markdown, not a glance, because:
+      #   - the sun sensors are TIMESTAMPS (a glance renders them as "in 10
+      #     hours", which is useless here), and
+      #   - the moon state is snake_case ('waxing_crescent') and needs
+      #     prettifying to 'Waxing Crescent'.
+      #
+      # SOUTHERN HEMISPHERE NOTE: the standard moon emoji are drawn for the
+      # NORTHERN hemisphere (waxing = lit on the right). From Brisbane the moon
+      # appears mirrored, so each waxing/waning glyph below is deliberately
+      # swapped for its mirror image to match what you actually see.
+      #
+      # The sun sensors are 'next_rising'/'next_setting', so during the day
+      # 'next rising' is technically tomorrow's - but sunrise shifts only ~1
+      # min/day, so it is effectively today's time and fine for a glance panel.
       # ======================================================================
       - type: grid
         cards:
-          - type: glance
-            title: Station Health
-            columns: 3
-            entities:
-              - entity: sensor.hp2564ca_pro_v2_1_4_wh57_battery
-                name: Lightning Batt
-              - entity: sensor.hp2564ca_pro_v2_1_4_wh90_battery
-                name: Array Batt
-              - entity: sensor.hp2564ca_pro_v2_1_4_wh90_capacitor
-                name: Array Cap
+          - type: markdown
+            title: Sun & Moon
+            content: |-
+              {% set rise = states('sensor.sun_next_rising') %}
+              {% set set_ = states('sensor.sun_next_setting') %}
+              {% set p = states('sensor.moon_phase') %}
+              {% set em = {
+                   'new_moon': '🌑',
+                   'waxing_crescent': '🌘',
+                   'first_quarter': '🌗',
+                   'waxing_gibbous': '🌖',
+                   'full_moon': '🌕',
+                   'waning_gibbous': '🌔',
+                   'last_quarter': '🌓',
+                   'waning_crescent': '🌒' } %}
+              # ↑ {{ as_timestamp(rise) | timestamp_custom('%H:%M') }}   ↓ {{ as_timestamp(set_) | timestamp_custom('%H:%M') }}
+              {{ em.get(p, '🌙') }} {{ p | replace('_', ' ') | title }}
             card_mod:
               style:
-                .entity$: |
-                  div:not(.name) {
-                    font-size: 22px !important;
-                    font-weight: 600 !important;
-                  }
                 .: |
                   ha-card {
+                    text-align: center !important;
                     --ha-card-header-font-size: 22px;
+                  }
+                  ha-card h1 {
+                    font-size: 30px !important;
+                    font-weight: 700 !important;
+                    line-height: 1.2 !important;
+                    margin: 2px 0 4px 0 !important;
+                    border-bottom: none !important;
+                  }
+                  ha-card p {
+                    font-size: 20px !important;
+                    font-weight: 600 !important;
+                    margin: 0 !important;
                   }
