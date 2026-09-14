@@ -99,7 +99,7 @@ views:
       - type: grid
         cards:
           - type: grid
-            title: ☀️ Solar & UV Conditions
+            title: ☀️ UV & Free Power
             columns: 2
             square: false
             cards:
@@ -115,11 +115,92 @@ views:
                   green: 0
                   yellow: 3
                   red: 8
-              - type: gauge
-                entity: sensor.hp2564ca_pro_v2_1_4_solar_radiation
-                name: Solar Radiation
-                min: 0
-                max: 1000
+              # ================================================================
+              # "CAN I RUN THE WASHING MACHINE?" traffic light.
+              # Replaced the Solar Radiation gauge (not useful day-to-day).
+              #
+              # spare = solar generation - house load. Battery CHARGING power
+              # counts as spare on purpose: with a 2c feed-in and frequent
+              # curtailment, running an appliance now is worth more than storing
+              # or exporting the same kWh, and the battery refills if there is
+              # sun left in the day.
+              #
+              # CRITICAL: when the inverters are being CURTAILED, measured solar
+              # is artificially throttled (down to ~5%), so `solar - load` reads
+              # LOW exactly when spare capacity is HIGHEST. Curtailment is
+              # therefore treated as an explicit "yes" rather than being fed
+              # through the arithmetic — otherwise the light would show red on
+              # the sunniest days.
+              #
+              # Late-day guard: plenty of spare but little sun left AND a low
+              # battery is downgraded to amber, because that energy is needed to
+              # carry the house through the evening peak.
+              # ================================================================
+              - type: markdown
+                content: >-
+                  {% set solar = states('sensor.total_solar_power') | float(0) / 1000 %}
+                  {% set load = states('sensor.power_sync_home_load') | float(0) %}
+                  {% set spare = solar - load %}
+                  {% set curtail = is_state('binary_sensor.output_suppressed', 'on') %}
+                  {% set soc = states('sensor.power_sync_battery_level') | float(0) %}
+                  {% set remain = states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) %}
+                  {% set save_for_tonight = (remain < 3 and soc < 60) %}
+                  {% if curtail %}
+                  # YES
+                  Loads of spare — panels are throttled back
+                  {% elif spare >= 1.0 and not save_for_tonight %}
+                  # YES
+                  **{{ spare | round(1) }} kW** spare right now
+                  {% elif spare >= 1.0 and save_for_tonight %}
+                  {# Must be tested BEFORE the generic 'spare >= 0.2' branch,
+                     otherwise this more useful message is unreachable. #}
+                  # A LITTLE
+                  Saving charge for tonight
+                  {% elif spare >= 0.2 %}
+                  # A LITTLE
+                  **{{ spare | round(1) }} kW** spare — small things only
+                  {% else %}
+                  # NOT NOW
+                  {% if solar < 0.1 %}No sun — running on battery{% else %}House is using it all{% endif %}
+                  {% endif %}
+                card_mod:
+                  # The colour has to re-derive the same tiers as the content
+                  # above (card-mod styles are evaluated separately from card
+                  # content). Keep the two in sync if the thresholds change.
+                  style: >-
+                    {% set solar = states('sensor.total_solar_power') | float(0) / 1000 %}
+                    {% set load = states('sensor.power_sync_home_load') | float(0) %}
+                    {% set spare = solar - load %}
+                    {% set curtail = is_state('binary_sensor.output_suppressed', 'on') %}
+                    {% set soc = states('sensor.power_sync_battery_level') | float(0) %}
+                    {% set remain = states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) %}
+                    {% set save_for_tonight = (remain < 3 and soc < 60) %}
+                    {% if curtail or (spare >= 1.0 and not save_for_tonight) %}
+                      {% set bg = '#2e7d32' %}
+                    {% elif spare >= 0.2 or (spare >= 1.0 and save_for_tonight) %}
+                      {% set bg = '#f9a825' %}
+                    {% else %}
+                      {% set bg = '#c62828' %}
+                    {% endif %}
+                    ha-card {
+                      background: {{ bg }} !important;
+                      border: none !important;
+                      text-align: center !important;
+                      color: #ffffff !important;
+                    }
+                    ha-card h1 {
+                      font-size: 40px !important;
+                      font-weight: 800 !important;
+                      line-height: 1.1 !important;
+                      margin: 2px 0 4px 0 !important;
+                      border-bottom: none !important;
+                      color: #ffffff !important;
+                    }
+                    ha-card p {
+                      font-size: 15px !important;
+                      margin: 0 !important;
+                      color: #ffffff !important;
+                    }
 
       # ======================================================================
       # ROW 2a — STORM WATCH: lightning proximity, activity, last event.
