@@ -191,7 +191,17 @@ Cons / design constraints:
 ## Dependencies
 - Custom integration: **PowerSync** (Tesla/Amber/Solcast orchestration)
 - Solcast HA integration (`ha-solcast-solar`)
-- HACS frontend cards: `apexcharts-card`, `logbook-card`, `card-mod`
+- HACS frontend cards (all REQUIRED — dashboards render "Custom element doesn't
+  exist" without them):
+  - `card-mod` — used heavily for readability styling (kitchen weather display).
+    NOTE: glance-card internals sit in a nested shadow root, so those styles use
+    card-mod's `$` piercing syntax (see comments in `weather_dashboard.yaml`).
+  - `apexcharts-card` — Solcast forecast-vs-actual charts
+  - `mini-graph-card` — weather trend graphs (temp, lightning activity)
+  - `windrose-card` — wind direction history rose
+  - `sensor-bar-card-plus` — lightning storm-proximity bar
+  - `multiple-logbook-card` — activity log dashboard
+    (this is NOT the similarly-named `logbook-card`)
 
 ## Notes
 - This is a partial config: `automations.yaml`, `scripts.yaml`, `scenes.yaml`,
