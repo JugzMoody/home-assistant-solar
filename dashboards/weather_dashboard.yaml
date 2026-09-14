@@ -1,18 +1,184 @@
+title: Weather Station
+# ============================================================================
+# ECOWITT HP2564 KITCHEN DISPLAY
+# Target: PORTRAIT monitor (~1080x1920), always-on, glanceable from across the
+# room, and ideally NO SCROLLING.
+#
+# Layout: type: sections with max_columns: 2.
+#   - 1 column was too tall (measured 3812px vs a 1920px viewport = ~50%
+#     visible). Two columns roughly halves the height.
+#   - Sections flow row-by-row across the columns, so a SHORT section paired
+#     with a TALL one leaves dead space under the short one. The order below
+#     deliberately pairs similar heights:
+#         row 1: Right Now      + Sun & UV        (both short)
+#         row 2: Storm Watch    + Wind            (both tall)
+#         row 3: Temperature    + Rain            (both medium)
+#         row 4: Forecast       + Station Health  (medium + short, last)
+#   - Cards carry their own `title:` instead of `heading:` cards, for
+#     compatibility with older HA versions.
+# ============================================================================
 views:
   - title: Weather Station
     path: weather_station
-    type: sidebar
-    cards:
-      - type: weather-forecast
-        entity: weather.forecast_home
-        name: Local Weather Forecast
-        show_current: true
-        show_forecast: true
-        secondary_info_attribute: humidity
-        forecast_type: daily
+    type: sections
+    max_columns: 2
+    sections:
+      # ======================================================================
+      # ROW 1a — RIGHT NOW. The at-a-glance strip; most important to read from
+      # a distance. Feels-like leads because it is more meaningful than
+      # dry-bulb temp; rain state is a plain yes/no.
+      # ======================================================================
       - type: grid
-        columns: 2
-        square: false
+        cards:
+          - type: glance
+            title: Right Now
+            show_name: true
+            show_state: true
+            columns: 4
+            entities:
+              - entity: sensor.hp2564ca_pro_v2_1_4_feels_like_temperature
+                name: Feels Like
+              - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
+                name: Actual
+              - entity: sensor.hp2564ca_pro_v2_1_4_humidity
+                name: Humidity
+              - entity: sensor.hp2564ca_pro_v2_1_4_wind_gust
+                name: Gust
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              # Plain "is it raining?" — binary_sensor renders as Wet/Dry.
+              - type: tile
+                entity: binary_sensor.hp2564ca_pro_v2_1_4_rain_state_piezo
+                name: Raining?
+                icon: mdi:weather-pouring
+                color: blue
+              - type: tile
+                entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
+                name: Rain Rate
+                icon: mdi:speedometer
+
+      # ======================================================================
+      # ROW 1b — SUN / UV (short, pairs with Right Now)
+      # ======================================================================
+      - type: grid
+        cards:
+          - type: grid
+            title: ☀️ Solar & UV Conditions
+            columns: 2
+            square: false
+            cards:
+              - type: gauge
+                entity: sensor.hp2564ca_pro_v2_1_4_uv_index
+                name: UV Index
+                min: 0
+                max: 11
+                needle: true
+                # FIXED: removed 'amber: 6' — the HA gauge card only accepts
+                # green / yellow / red severity keys; 'amber' was invalid.
+                severity:
+                  green: 0
+                  yellow: 3
+                  red: 8
+              - type: gauge
+                entity: sensor.hp2564ca_pro_v2_1_4_solar_radiation
+                name: Solar Radiation
+                min: 0
+                max: 1000
+
+      # ======================================================================
+      # ROW 2a — STORM WATCH: lightning proximity, activity, last event.
+      # ======================================================================
+      - type: grid
+        cards:
+          # Uses sensor.live_lightning_distance (configuration.yaml), NOT the
+          # raw station distance: the station HOLDS the last strike distance
+          # indefinitely (it read 6 km from a strike 8 days ago), which would
+          # leave this bar permanently red. The template sensor pins to 40 km
+          # unless a strike landed in the last 30 min.
+          - type: custom:sensor-bar-card-plus
+            title: ⚡ LIVE STORM INBOUND PROXIMITY
+            entity: sensor.live_lightning_distance
+            # Override the entity's friendly name ("Live Lightning Distance"),
+            # which truncated to "Live Lightni..." in this narrow column.
+            name: Lightning
+            min: 40
+            max: 0
+            invert_direction: false
+            icon: mdi:home-lightning-bolt
+            unit: km away
+            severity:
+              - from: 25.1
+                to: 40
+                color: '#ffeb3b'
+              - from: 10.1
+                to: 25
+                color: '#ff9800'
+              - from: 0
+                to: 10
+                color: '#f44336'
+          - type: custom:mini-graph-card
+            title: Lightning Strike Activity (24h)
+            entities:
+              - entity: sensor.hp2564ca_pro_v2_1_4_lightning_strikes
+                name: Strikes / hour
+                color: '#ffeb3b'
+            hours_to_show: 24
+            height: 70
+            # The station's strike counter is CUMULATIVE (resets daily), so
+            # aggregate_func: max drew a rising staircase of the running total
+            # rather than activity. `delta` gives strikes-per-hour = real
+            # activity.
+            aggregate_func: delta
+            group_by: hour
+            # SOFT upper bound ('~'): keeps the axis at 10 so an all-zero day
+            # renders as a sensible flat line instead of a stack of tiny blips
+            # at the bottom, BUT still expands if a storm exceeds 10/hour (a
+            # hard `upper_bound: 10` would clip the peak of a real storm).
+            # Must be QUOTED — bare ~10 risks parsing as YAML null.
+            lower_bound: 0
+            upper_bound: '~10'
+            show:
+              graph: line
+              fill: false
+              icon: true
+              legend: false
+              extrema: false
+              labels: false
+          # An `entity` card here truncated badly in a narrow column ("Last
+          # Detected ..." / "Septemb..."), because the raw state is a full
+          # datetime. Relative time ("8 days ago") is both shorter AND more
+          # glanceable from across the kitchen.
+          - type: markdown
+            content: >-
+              {% set s = states('sensor.hp2564ca_pro_v2_1_4_last_lightning_strike') %}
+              ⏱️ **Last strike:**
+              {% if s not in ['unknown', 'unavailable', 'None'] %}
+              {{ relative_time(as_datetime(s)) }} ago
+              {% else %}
+              none recorded
+              {% endif %}
+          # Moved here from the Wind section: after the barometer was removed,
+          # this (left) column was ~260px SHORTER than the windrose beside it,
+          # leaving dead space. Parking Wind Detail here balances the row and
+          # shortens the overall page. It still sits visually alongside the
+          # windrose.
+          - type: glance
+            title: Wind Detail
+            columns: 3
+            entities:
+              - entity: sensor.hp2564ca_pro_v2_1_4_wind_speed
+                name: Speed
+              - entity: sensor.hp2564ca_pro_v2_1_4_wind_gust
+                name: Gust Now
+              - entity: sensor.hp2564ca_pro_v2_1_4_max_daily_gust
+                name: Max Today
+
+      # ======================================================================
+      # ROW 2b — WIND (tall, pairs with Storm Watch)
+      # ======================================================================
+      - type: grid
         cards:
           - type: custom:windrose-card
             title: Wind Direction History
@@ -43,89 +209,104 @@ views:
                     color: '#ff9800'
                   - from_value: 22
                     color: '#f44336'
-          - type: grid
-            columns: 1
-            square: false
-            cards:
-              - type: custom:sensor-bar-card-plus
-                title: ⚡ LIVE STORM INBOUND PROXIMITY
-                entity: sensor.live_lightning_distance
-                min: 40
-                max: 0
-                invert_direction: false
-                icon: mdi:home-lightning-bolt
-                unit: km away
-                severity:
-                  - from: 25.1
-                    to: 40
-                    color: '#ffeb3b'
-                  - from: 10.1
-                    to: 25
-                    color: '#ff9800'
-                  - from: 0
-                    to: 10
-                    color: '#f44336'
-              - type: custom:mini-graph-card
-                title: Lightning Strike Activity (24h)
-                entities:
-                  - entity: sensor.hp2564ca_pro_v2_1_4_lightning_strikes
-                    name: Strikes Count
-                    color: '#ffeb3b'
-                hours_to_show: 24
-                lower_bound: 0
-                upper_bound: 10
-                aggregate_func: max
-                group_by: hour
-                show:
-                  graph: line
-                  fill: false
-                  icon: true
-                  legend: false
-                  extrema: false
-                  labels: false
-              - type: entity
-                entity: sensor.hp2564ca_pro_v2_1_4_last_lightning_strike
-                name: Last Detected Event
-                icon: mdi:clock-alert-outline
-              - type: custom:mini-graph-card
-                title: 24h Temperature & Dewpoint
-                hours_to_show: 24
-                line_width: 3
-                points_per_hour: 2
-                entities:
-                  - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
-                    name: Temp
-                    color: '#ff5722'
-                  - entity: sensor.hp2564ca_pro_v2_1_4_dewpoint
-                    name: Dew Point
-                    color: '#00bcd4'
-              - type: history-graph
-                title: Rain Timeline & Total Accumulation
-                entities:
-                  - entity: sensor.hp2564ca_pro_v2_1_4_hourly_rain_piexo
-                    name: Active Showers Timeline
-                  - entity: sensor.hp2564ca_pro_v2_1_4_daily_rain_piezo
-                    name: Day Total Accumulated
-                hours_to_show: 24
-                refresh_interval: 0
-              - type: grid
-                title: ☀️ Solar & UV Conditions
-                columns: 2
-                square: false
-                cards:
-                  - type: gauge
-                    entity: sensor.hp2564ca_pro_v2_1_4_uv_index
-                    name: UV Index
-                    min: 0
-                    max: 11
-                    needle: true
-                    severity:
-                      green: 0
-                      yellow: 3
-                      amber: 6
-                      red: 8
-                  - type: gauge
-                    entity: sensor.hp2564ca_pro_v2_1_4_solar_radiation
-                    name: Solar Radiation
-                    min: 0
-                    max: 1000
+
+      # ======================================================================
+      # ROW 3a — TEMPERATURE (medium)
+      # ======================================================================
+      - type: grid
+        cards:
+          # Outside temperature only — dewpoint removed (little practical value
+          # in Brisbane). `show.extrema: true` adds the 24h HIGH/LOW pin badges
+          # directly on the line, which is the "tag" we want; height bumped to
+          # 120 so those badges have room and don't crowd the trace.
+          - type: custom:mini-graph-card
+            title: 24h Outside Temperature
+            hours_to_show: 24
+            line_width: 3
+            points_per_hour: 2
+            height: 120
+            entities:
+              - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
+                name: Temp
+                color: '#ff5722'
+            show:
+              graph: line
+              fill: fade
+              icon: true
+              legend: false
+              extrema: true
+              labels: false
+          # Inside vs outside — "should we open the windows?"
+          - type: glance
+            title: Inside vs Outside
+            columns: 4
+            entities:
+              - entity: sensor.hp2564ca_pro_v2_1_4_indoor_temperature
+                name: In Temp
+              - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
+                name: Out Temp
+              - entity: sensor.hp2564ca_pro_v2_1_4_indoor_humidity
+                name: In RH
+              - entity: sensor.hp2564ca_pro_v2_1_4_humidity
+                name: Out RH
+
+      # ======================================================================
+      # ROW 3b — RAIN (medium, pairs with Temperature)
+      # ======================================================================
+      - type: grid
+        cards:
+          - type: history-graph
+            title: Rain Timeline & Total Accumulation
+            hours_to_show: 24
+            entities:
+              # FIXED: was '..._hourly_rain_piexo' (typo) so this series never
+              # rendered — the legend only ever showed the daily total.
+              - entity: sensor.hp2564ca_pro_v2_1_4_hourly_rain_piezo
+                name: Active Showers Timeline
+              - entity: sensor.hp2564ca_pro_v2_1_4_daily_rain_piezo
+                name: Day Total Accumulated
+          # Rainfall context at a glance (garden / tank decisions).
+          - type: glance
+            title: Rainfall Totals
+            columns: 4
+            entities:
+              - entity: sensor.hp2564ca_pro_v2_1_4_24h_rain_piezo
+                name: 24 Hours
+              - entity: sensor.hp2564ca_pro_v2_1_4_weekly_rain_piezo
+                name: This Week
+              - entity: sensor.hp2564ca_pro_v2_1_4_monthly_rain_piezo
+                name: This Month
+              - entity: sensor.hp2564ca_pro_v2_1_4_yearly_rain_piezo
+                name: This Year
+
+      # ======================================================================
+      # ROW 4a — FORECAST. Below the live data: the station's own readings are
+      # what this display is for; the forecast is supporting context.
+      # ======================================================================
+      - type: grid
+        cards:
+          - type: weather-forecast
+            entity: weather.forecast_home
+            name: Local Weather Forecast
+            show_current: true
+            show_forecast: true
+            secondary_info_attribute: humidity
+            forecast_type: daily
+
+      # ======================================================================
+      # ROW 4b — STATION HEALTH. Last and small, but it matters: a flat sensor
+      # battery makes the station silently report "no lightning / no rain"
+      # rather than an error. WH57 = lightning sensor, WH90 = outdoor array.
+      # ======================================================================
+      - type: grid
+        cards:
+          - type: glance
+            title: Station Health
+            columns: 3
+            entities:
+              - entity: sensor.hp2564ca_pro_v2_1_4_wh57_battery
+                name: Lightning Batt
+              - entity: sensor.hp2564ca_pro_v2_1_4_wh90_battery
+                name: Array Batt
+              - entity: sensor.hp2564ca_pro_v2_1_4_wh90_capacitor
+                name: Array Cap
