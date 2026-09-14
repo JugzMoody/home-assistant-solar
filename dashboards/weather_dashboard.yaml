@@ -303,40 +303,67 @@ views:
           # leaving dead space. Parking Wind Detail here balances the row and
           # shortens the overall page. It still sits visually alongside the
           # windrose.
-          - type: glance
-            title: Wind Detail
-            show_icon: false
-            columns: 3
-            entities:
-              - entity: sensor.hp2564ca_pro_v2_1_4_wind_speed
-                name: Speed
-              - entity: sensor.hp2564ca_pro_v2_1_4_wind_gust
-                name: Gust Now
-              - entity: sensor.hp2564ca_pro_v2_1_4_max_daily_gust
-                name: Max Today
+          # Wind summary. Was a glance card (Speed / Gust Now / Max Today);
+          # now markdown so wind direction can be templated from degrees into a
+          # 16-point compass label. 'Gust Now' dropped - 'Right Now' shows Gust.
+          # Direction uses the 10-MINUTE AVERAGE: the instantaneous
+          # wind_direction sensor jitters too much to read at a glance.
+          - type: markdown
+            title: Wind
+            content: |-
+              {% set deg = states('sensor.hp2564ca_pro_v2_1_4_wind_direction_10m_avg') | float(-1) %}
+              {% set dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',
+                             'S','SSW','SW','WSW','W','WNW','NW','NNW'] %}
+              {% set compass = dirs[(((deg / 22.5) + 0.5) | int) % 16] if deg >= 0 else '--' %}
+              | Speed | From | Max Today |
+              |:-:|:-:|:-:|
+              | {{ states('sensor.hp2564ca_pro_v2_1_4_wind_speed') | float(0) | round(1) }} kn | {{ compass }} | {{ states('sensor.hp2564ca_pro_v2_1_4_max_daily_gust') | float(0) | round(1) }} kn |
             card_mod:
               style:
-                .entity$: |
-                  .name {
-                    font-size: 15px !important;
-                    color: var(--secondary-text-color) !important;
+                ha-markdown$: |
+                  table {
+                    width: 100% !important;
+                    border-collapse: collapse !important;
+                    margin: 0 !important;
                   }
-                  div:not(.name) {
+                  /* Equal thirds + explicit centring so each value sits directly
+                     under its heading. Markdown's ':-:' alignment hints are not
+                     honoured by HA's renderer, so it must be set in CSS. */
+                  th, td {
+                    width: 33.33% !important;
+                    text-align: center !important;
+                    border: none !important;
+                  }
+                  th {
+                    font-size: 15px !important;
+                    font-weight: 400 !important;
+                    color: var(--secondary-text-color) !important;
+                    padding: 0 0 2px 0 !important;
+                  }
+                  td {
                     font-size: 28px !important;
                     font-weight: 700 !important;
-                    line-height: 1.25 !important;
+                    padding: 0 !important;
                     white-space: nowrap !important;
                   }
                 .: |
                   ha-card {
                     --ha-card-header-font-size: 24px;
                   }
-
       # ======================================================================
       # ROW 2b - WIND (tall, pairs with Storm Watch)
       # ======================================================================
       - type: grid
         cards:
+          # NOTE: a BOM rain radar card was trialled here and REVERTED.
+          # custom:bom-radar-card fetches
+          #   https://api.weather.bom.gov.au/v1/radar/capabilities
+          # which BOM RETIRED in Dec 2024 - it now returns HTTP 404. The browser
+          # surfaces this as a CORS error only because a 404 carries no CORS
+          # headers; other endpoints on that host (e.g. /v1/locations) return 200
+          # with 'Access-Control-Allow-Origin: *'. So the card cannot work at any
+          # configuration, and radar nowcasting needs a different source
+          # (see README).
           - type: custom:windrose-card
             title: Wind Direction History
             refresh_interval: 60
@@ -366,7 +393,6 @@ views:
                     color: '#ff9800'
                   - from_value: 22
                     color: '#f44336'
-
       # ======================================================================
       # ROW 3a - TEMPERATURE (medium)
       # ======================================================================
