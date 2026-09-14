@@ -2,20 +2,29 @@ title: Weather Station
 # ============================================================================
 # ECOWITT HP2564 KITCHEN DISPLAY
 # Target: PORTRAIT monitor (~1080x1920), always-on, glanceable from across the
-# room, and ideally NO SCROLLING.
+# room, and NO SCROLLING (verified at exactly 1920px).
 #
 # Layout: type: sections with max_columns: 2.
-#   - 1 column was too tall (measured 3812px vs a 1920px viewport = ~50%
-#     visible). Two columns roughly halves the height.
+#   - 1 column was too tall (3812px vs a 1920px viewport = ~50% visible).
 #   - Sections flow row-by-row across the columns, so a SHORT section paired
-#     with a TALL one leaves dead space under the short one. The order below
-#     deliberately pairs similar heights:
+#     with a TALL one leaves dead space. Order pairs similar heights:
 #         row 1: Right Now      + Sun & UV        (both short)
 #         row 2: Storm Watch    + Wind            (both tall)
 #         row 3: Temperature    + Rain            (both medium)
 #         row 4: Forecast       + Station Health  (medium + short, last)
 #   - Cards carry their own `title:` instead of `heading:` cards, for
 #     compatibility with older HA versions.
+#
+# READABILITY (needs the card-mod HACS plugin):
+#   Glance cards default to small state text with a lot of padding. Every
+#   glance below uses the same card_mod recipe:
+#     * state value  -> 30px, bold  (the number you read from 3 m away)
+#     * entity name  -> 15px, muted (a label, not the point)
+#     * card header  -> 24px
+#   Icons are hidden (`show_icon: false`) on the pure-data glances because they
+#   were REDUNDANT and costly: e.g. Rainfall Totals showed four identical cloud
+#   icons, consuming a row of height while conveying nothing. Dropping them
+#   buys back the height that the larger type consumes.
 # ============================================================================
 views:
   - title: Weather Station
@@ -24,9 +33,11 @@ views:
     max_columns: 2
     sections:
       # ======================================================================
-      # ROW 1a — RIGHT NOW. The at-a-glance strip; most important to read from
-      # a distance. Feels-like leads because it is more meaningful than
-      # dry-bulb temp; rain state is a plain yes/no.
+      # ROW 1a — RIGHT NOW. The hero card: most important to read at distance.
+      # The two rain tiles (Raining? / Rain Rate) were folded in here as
+      # entities 5 and 6 — as separate tile cards they added two more card
+      # borders and padding blocks for two small values.
+      # 3 columns x 2 rows keeps the numbers large.
       # ======================================================================
       - type: grid
         cards:
@@ -34,7 +45,8 @@ views:
             title: Right Now
             show_name: true
             show_state: true
-            columns: 4
+            show_icon: false
+            columns: 3
             entities:
               - entity: sensor.hp2564ca_pro_v2_1_4_feels_like_temperature
                 name: Feels Like
@@ -44,20 +56,42 @@ views:
                 name: Humidity
               - entity: sensor.hp2564ca_pro_v2_1_4_wind_gust
                 name: Gust
-          - type: grid
-            columns: 2
-            square: false
-            cards:
-              # Plain "is it raining?" — binary_sensor renders as Wet/Dry.
-              - type: tile
-                entity: binary_sensor.hp2564ca_pro_v2_1_4_rain_state_piezo
+              - entity: binary_sensor.hp2564ca_pro_v2_1_4_rain_state_piezo
                 name: Raining?
-                icon: mdi:weather-pouring
-                color: blue
-              - type: tile
-                entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
+              - entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
                 name: Rain Rate
-                icon: mdi:speedometer
+            card_mod:
+              # IMPORTANT: in this HA version each glance `div.entity` has its
+              # OWN shadow root containing `div.name` (label) and a bare `div`
+              # (the value). A selector written from the card's root therefore
+              # CANNOT reach them — verified by DOM inspection. The `$` suffix
+              # is card-mod's shadow-root piercing syntax; `.` targets the card.
+              style:
+                .entity$: |
+                  .name {
+                    font-size: 16px !important;
+                    color: var(--secondary-text-color) !important;
+                  }
+                  div:not(.name) {
+                    /* 34px truncated ("19.3...") in a 3-col ~120px cell.
+                       26px fits "19.3 °C" / "0.0 mm/h" without ellipsis. */
+                    font-size: 26px !important;
+                    font-weight: 700 !important;
+                    line-height: 1.25 !important;
+                    white-space: nowrap !important;
+                  }
+                # Rain Rate is the last cell and its value ("0.0 mm/h") is the
+                # widest string on the card — it still clipped at 26px (needed
+                # 113px in a 102px cell). Shrink ONLY that cell rather than
+                # dropping the whole hero card down a size for one outlier.
+                .entity:last-child$: |
+                  div:not(.name) {
+                    font-size: 21px !important;
+                  }
+                .: |
+                  ha-card {
+                    --ha-card-header-font-size: 26px;
+                  }
 
       # ======================================================================
       # ROW 1b — SUN / UV (short, pairs with Right Now)
@@ -126,6 +160,9 @@ views:
                 color: '#ffeb3b'
             hours_to_show: 24
             height: 70
+            # Scale the big state number up for distance reading (percentage of
+            # the card's base font size).
+            font_size: 140
             # The station's strike counter is CUMULATIVE (resets daily), so
             # aggregate_func: max drew a rising staircase of the running total
             # rather than activity. `delta` gives strikes-per-hour = real
@@ -159,6 +196,11 @@ views:
               {% else %}
               none recorded
               {% endif %}
+            card_mod:
+              style: |
+                ha-card {
+                  font-size: 20px !important;
+                }
           # Moved here from the Wind section: after the barometer was removed,
           # this (left) column was ~260px SHORTER than the windrose beside it,
           # leaving dead space. Parking Wind Detail here balances the row and
@@ -166,6 +208,7 @@ views:
           # windrose.
           - type: glance
             title: Wind Detail
+            show_icon: false
             columns: 3
             entities:
               - entity: sensor.hp2564ca_pro_v2_1_4_wind_speed
@@ -174,6 +217,23 @@ views:
                 name: Gust Now
               - entity: sensor.hp2564ca_pro_v2_1_4_max_daily_gust
                 name: Max Today
+            card_mod:
+              style:
+                .entity$: |
+                  .name {
+                    font-size: 15px !important;
+                    color: var(--secondary-text-color) !important;
+                  }
+                  div:not(.name) {
+                    font-size: 28px !important;
+                    font-weight: 700 !important;
+                    line-height: 1.25 !important;
+                    white-space: nowrap !important;
+                  }
+                .: |
+                  ha-card {
+                    --ha-card-header-font-size: 24px;
+                  }
 
       # ======================================================================
       # ROW 2b — WIND (tall, pairs with Storm Watch)
@@ -216,15 +276,16 @@ views:
       - type: grid
         cards:
           # Outside temperature only — dewpoint removed (little practical value
-          # in Brisbane). `show.extrema: true` adds the 24h HIGH/LOW pin badges
-          # directly on the line, which is the "tag" we want; height bumped to
-          # 120 so those badges have room and don't crowd the trace.
+          # in Brisbane). `show.extrema: true` adds the 24h HIGH/LOW badges
+          # (with their timestamps) which is the "tag" we want; height 120 so
+          # they have room. font_size scales the big current-value number.
           - type: custom:mini-graph-card
             title: 24h Outside Temperature
             hours_to_show: 24
             line_width: 3
             points_per_hour: 2
             height: 120
+            font_size: 150
             entities:
               - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
                 name: Temp
@@ -239,16 +300,36 @@ views:
           # Inside vs outside — "should we open the windows?"
           - type: glance
             title: Inside vs Outside
+            show_icon: false
             columns: 4
             entities:
+              # Short labels: at 4 columns (~91px/cell) longer names ellipsised.
               - entity: sensor.hp2564ca_pro_v2_1_4_indoor_temperature
-                name: In Temp
+                name: In
               - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
-                name: Out Temp
+                name: Out
               - entity: sensor.hp2564ca_pro_v2_1_4_indoor_humidity
                 name: In RH
               - entity: sensor.hp2564ca_pro_v2_1_4_humidity
                 name: Out RH
+            card_mod:
+              style:
+                .entity$: |
+                  .name {
+                    font-size: 15px !important;
+                    color: var(--secondary-text-color) !important;
+                  }
+                  div:not(.name) {
+                    /* 4 columns => ~91px cells; 22px keeps "23.2 °C" intact. */
+                    font-size: 22px !important;
+                    font-weight: 700 !important;
+                    line-height: 1.25 !important;
+                    white-space: nowrap !important;
+                  }
+                .: |
+                  ha-card {
+                    --ha-card-header-font-size: 24px;
+                  }
 
       # ======================================================================
       # ROW 3b — RAIN (medium, pairs with Temperature)
@@ -265,19 +346,44 @@ views:
                 name: Active Showers Timeline
               - entity: sensor.hp2564ca_pro_v2_1_4_daily_rain_piezo
                 name: Day Total Accumulated
-          # Rainfall context at a glance (garden / tank decisions).
+          # Rainfall context at a glance (garden / tank decisions). Icons hidden
+          # — all four were the same cloud glyph, pure vertical padding.
           - type: glance
             title: Rainfall Totals
+            show_icon: false
             columns: 4
             entities:
+              # Short labels: "This Month" ellipsised to "This Mon..." at 4 cols.
               - entity: sensor.hp2564ca_pro_v2_1_4_24h_rain_piezo
-                name: 24 Hours
+                name: 24 h
               - entity: sensor.hp2564ca_pro_v2_1_4_weekly_rain_piezo
-                name: This Week
+                name: Week
               - entity: sensor.hp2564ca_pro_v2_1_4_monthly_rain_piezo
-                name: This Month
+                name: Month
               - entity: sensor.hp2564ca_pro_v2_1_4_yearly_rain_piezo
-                name: This Year
+                name: Year
+            card_mod:
+              style:
+                .entity$: |
+                  .name {
+                    font-size: 15px !important;
+                    color: var(--secondary-text-color) !important;
+                  }
+                  div:not(.name) {
+                    /* 19px, NOT the 22px used by Inside-vs-Outside. Despite
+                       identical config and DOM metrics reporting no overflow,
+                       these values ("0.0 mm") visibly ellipsised at 22px in
+                       this column. Trust the rendered pixels over scrollWidth:
+                       19px renders in full. */
+                    font-size: 19px !important;
+                    font-weight: 700 !important;
+                    line-height: 1.25 !important;
+                    white-space: nowrap !important;
+                  }
+                .: |
+                  ha-card {
+                    --ha-card-header-font-size: 24px;
+                  }
 
       # ======================================================================
       # ROW 4a — FORECAST. Below the live data: the station's own readings are
@@ -297,6 +403,7 @@ views:
       # ROW 4b — STATION HEALTH. Last and small, but it matters: a flat sensor
       # battery makes the station silently report "no lightning / no rain"
       # rather than an error. WH57 = lightning sensor, WH90 = outdoor array.
+      # Icons KEPT here — the battery glyph is genuinely informative.
       # ======================================================================
       - type: grid
         cards:
@@ -310,3 +417,14 @@ views:
                 name: Array Batt
               - entity: sensor.hp2564ca_pro_v2_1_4_wh90_capacitor
                 name: Array Cap
+            card_mod:
+              style:
+                .entity$: |
+                  div:not(.name) {
+                    font-size: 22px !important;
+                    font-weight: 600 !important;
+                  }
+                .: |
+                  ha-card {
+                    --ha-card-header-font-size: 22px;
+                  }
