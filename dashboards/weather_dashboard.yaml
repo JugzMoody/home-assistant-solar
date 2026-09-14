@@ -190,6 +190,17 @@ views:
                       border: none !important;
                       text-align: center !important;
                       color: #ffffff !important;
+                      /* Vertically centre the text: the card is stretched to
+                         match the UV gauge beside it, so without this the
+                         status sits at the top with dead space underneath.
+                         height:100% makes the card fill its grid cell, then
+                         flex centring positions the content in the middle. */
+                      height: 100% !important;
+                      box-sizing: border-box !important;
+                      display: flex !important;
+                      flex-direction: column !important;
+                      justify-content: center !important;
+                      align-items: center !important;
                     }
                     ha-card h1 {
                       /* 32px, not 40px: "A LITTLE" (8 chars) wrapped at 40px in
