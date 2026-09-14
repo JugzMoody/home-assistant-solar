@@ -301,6 +301,101 @@ Cons / design constraints:
 - Snapshot/restore prior climate state when the soak window ends; stagger heads
   so load ramps in steps; set a room-temp floor (~21°C).
 
+## Rain radar / nowcasting (investigated 2026-09-14, not yet implemented)
+Goal: show "rain in X minutes" and/or an approaching-rain picture on the kitchen
+weather dashboard.
+
+### What is BROKEN (do not retry)
+- **`custom:bom-radar-card` (HACS) cannot work.** It fetches
+  `https://api.weather.bom.gov.au/v1/radar/capabilities`, which **BOM retired in
+  Dec 2024**. Verified: that path returns **HTTP 404**, while other endpoints on
+  the same host (e.g. `/v1/locations?search=4017`) return **200 with
+  `Access-Control-Allow-Origin: *`**. The browser reports it as a CORS failure
+  only because a 404 response carries no CORS headers, which masks the real
+  cause. The card was installed and reverted; the windrose was restored.
+- **OpenWeatherMap minutely nowcast is unavailable to us.** HA's
+  `openweathermap.get_minute_forecast` action requires integration mode `v3.0`
+  (it fails on `current`/`forecast`). OWM now only sells **One Call API 4.0** to
+  new accounts, 3.0 and 4.0 are separate products with different endpoints, and
+  **both cannot be active on one account**. Tracked upstream:
+  home-assistant/core issue #174333. Revisit if HA adds 4.0 support.
+
+### What still WORKS (verified by direct probing)
+BOM's **legacy** radar products are unaffected by the tiled-API removal:
+
+| Resource | Status |
+|---|---|
+| `http://www.bom.gov.au/radar/IDR663.T.<ts>.png` (frames) | 200, live |
+| `.../radar_transparencies/IDR663.background.png` | 200 |
+| `.../IDR663.topography.png`, `...locations.png`, `...range.png` | 200 |
+| `.../IDR.legend.0.png` | 200 |
+| `api.weather.bom.gov.au/v1/radar/*` | **404** |
+
+- **Cadence: every 5 minutes, at minutes ending in 4 or 9** (`:04, :09, :14 ...`),
+  i.e. epoch seconds where `(t mod 300) == 240`. Confirmed 9 frames in 75 min.
+  (An initial probe on a 6-minute grid found only 2 frames and looked like a
+  30-minute cadence - that was **aliasing**, not reality.)
+- All layers are **512x512 and pixel-aligned**, so they composite cleanly.
+- Frames carry **no CORS header**, which does not matter if HA fetches them
+  **server-side** (camera entity). CORS only broke the browser-based card.
+- Brisbane (Mt Stapylton) products: `IDR664` 64 km, **`IDR663` 128 km**,
+  `IDR662` 256 km, `IDR661` 512 km (earliest warning).
+
+### Option A - generic camera (free, works today, STATIC)
+```yaml
+camera:
+  - platform: generic
+    name: BOM Radar Brisbane
+    still_image_url: >-
+      {% set ts = as_timestamp(utcnow()) - 120 %}
+      {% set slot = (((ts - 240) / 300) | int) * 300 + 240 %}
+      http://www.bom.gov.au/radar/IDR663.T.{{ slot | timestamp_custom('%Y%m%d%H%M', false) }}.png
+    framerate: 0.2
+    verify_ssl: false
+```
+The 120 s lag keeps us behind BOM's publish time (worst case ~7 min stale).
+Verified: the template resolves to a live frame (200, ~3.6 kB).
+
+Radar frames are **transparent overlays** (rain only, no map), so stack them with
+a `picture-elements` card: `background` as the base image, then `topography`,
+then `camera_image:` for the rain, then `locations` on top - all at
+`width: 100%`, `top/left: 50%`.
+
+**Main limitation: it is a STILL image, not a loop** - you cannot tell whether a
+band is approaching or receding. Needs a `configuration.yaml` deploy + restart
+(camera platforms are not reloadable).
+
+### Option B - Tomorrow.io (free tier) - best for "rain in X minutes"
+Core HA integration (`tomorrowio`, successor to ClimaCell), free tier ~500
+req/day (25/hour), global so AU is covered; community reports alerts of the form
+"precipitation expected within 10 minutes". Caveat: HA's integration
+**hard-codes 100 requests/day** even though the free account allows 500, which
+limits update frequency; and accuracy relies on their model, not BOM radar.
+**Try this first for the numeric nowcast** - no containers, no cost.
+
+### Option C - bom-local-service (free, restores the ANIMATED loop)
+`github.com/alexhopeoconnor/bom-local-service` exists specifically to work around
+the Dec-2024 BOM breakage by re-serving BOM radar locally. Runs as a container -
+viable given Docker already runs on the Synology. This is the option that gets a
+real animated radar loop back.
+
+### Option D - paid, mostly NOT viable
+- **Weatherzone** has exactly the wanted product ("Future radar": predicted
+  precipitation over the next 30 min / 1 h / 2 h from past radar + satellite),
+  but it is B2B/enterprise (DTN-owned) with no consumer API tier and no HA
+  integration. Effectively unavailable.
+- **WillyWeather** ~$1.20/month with an HA integration (safepay) - adds warnings,
+  tides, swell, and is the *supported* route to BOM-derived data (BOM's own API
+  is not intended for third parties). But it does **not** provide minute-level
+  nowcasting.
+
+### Recommendation
+Pair two things: **Tomorrow.io for the number**, and either the **BOM camera**
+(free/instant/static) or **bom-local-service** (container, animated) for the
+picture. A static radar still is less useful than it sounds - without motion you
+cannot judge direction - so if the visual matters, bom-local-service is the
+better target than paying for anything.
+
 ## Dependencies
 - Custom integration: **PowerSync** (Tesla/Amber/Solcast orchestration)
 - Solcast HA integration (`ha-solcast-solar`)
