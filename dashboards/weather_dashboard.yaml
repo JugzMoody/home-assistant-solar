@@ -318,48 +318,47 @@ views:
                     --ha-card-header-font-size: 24px;
                   }
       # ======================================================================
-      # ROW 2b - WIND (tall, pairs with Storm Watch)
+      # ROW 2b - RAIN RADAR (tall, pairs with Storm Watch)
       # ======================================================================
       - type: grid
         cards:
-          # NOTE: a BOM rain radar card was trialled here and REVERTED.
-          # custom:bom-radar-card fetches
-          #   https://api.weather.bom.gov.au/v1/radar/capabilities
-          # which BOM RETIRED in Dec 2024 - it now returns HTTP 404. The browser
-          # surfaces this as a CORS error only because a 404 carries no CORS
-          # headers; other endpoints on that host (e.g. /v1/locations) return 200
-          # with 'Access-Control-Allow-Origin: *'. So the card cannot work at any
-          # configuration, and radar nowcasting needs a different source
-          # (see README).
-          - type: custom:windrose-card
-            title: Wind Direction History
-            refresh_interval: 60
-            data_period:
-              period_back: -4h
-            max_speed: 30
-            speed_unit: knots
-            direction_segments: 16
-            wind_direction_entity:
-              entity: sensor.hp2564ca_pro_v2_1_4_wind_direction
-              use_statistics: false
-            windspeed_entities:
-              - entity: sensor.hp2564ca_pro_v2_1_4_wind_speed
-                name: Speed
-                speed_unit: knots
-                output_speed_unit: knots
-                speed_range_beaufort: false
-                use_statistics: false
-                speed_ranges:
-                  - from_value: 0
-                    color: '#2196f3'
-                  - from_value: 4
-                    color: '#4caf50'
-                  - from_value: 11
-                    color: '#ffeb3b'
-                  - from_value: 16
-                    color: '#ff9800'
-                  - from_value: 22
-                    color: '#f44336'
+          # Windy.com radar embed, replacing the windrose. Wind detail is not
+          # wanted day-to-day, and current speed / direction / gust already
+          # appear in Right Now and in the Wind panel beside this.
+          #
+          # WHY WINDY AND NOT BOM DIRECTLY (all verified 2026-09-16):
+          #  * custom:bom-radar-card is DEAD. It fetches
+          #    api.weather.bom.gov.au/v1/radar/capabilities, which BOM retired in
+          #    Dec 2024 and now returns HTTP 404. Re-confirmed still 404.
+          #  * BOM's NEW radar service DOES work:
+          #      api.bom.gov.au/apikey/v1/mapping/timeseries/wmts/1.0.0/
+          #        atm_surf_air_precip_reflectivity_dbz/default/{time}/
+          #        GoogleMapsCompatible_BoM/{z}/{row}/{col}.png
+          #    but it needs a 'Referer: https://www.bom.gov.au/' header (404
+          #    without it) and returns Access-Control-Allow-Origin set to that
+          #    LITERAL origin, not '*'. A browser-side card therefore cannot read
+          #    it at all - it needs a server-side proxy, WMTS tile maths, tile
+          #    stitching and basemap compositing. See README + probe-bom-wmts.py.
+          #  * Windy embeds with no API key, no container and no CORS problem:
+          #    embed.windy.com sends no X-Frame-Options and no CSP
+          #    frame-ancestors. Its Australian radar is the BOM national
+          #    composite, so the underlying data is still BOM.
+          #
+          # zoom=8 spans roughly Gympie -> Warwick, enough upstream view to see
+          # a system approaching. zoom=7 widens it if that proves too tight.
+          # The kitchen display is NOT a touch screen, so Windy's own zoom and
+          # play controls are inert decoration and the view stays fixed.
+          #
+          # NOTE: the embed opens on the CURRENT frame and does not animate
+          # unless play is pressed, which nobody can do on a non-touch screen.
+          # Treat this as a live still, not a loop.
+          - type: iframe
+            # aspect_ratio drives the height. Tune this to line the row up with
+            # Storm Watch beside it: the windrose this replaced was auto-height,
+            # so the exact 1920px whole-page fit may need a nudge here.
+            aspect_ratio: 105%
+            url: >-
+              https://embed.windy.com/embed2.html?lat=-27.33&lon=153.07&detailLat=-27.33&detailLon=153.07&zoom=8&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
       # ======================================================================
       # ROW 3a - TEMPERATURE (medium)
       # ======================================================================

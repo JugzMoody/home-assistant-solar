@@ -305,7 +305,7 @@ Cons / design constraints:
 Goal: show "rain in X minutes" and/or an approaching-rain picture on the kitchen
 weather dashboard.
 
-### What is BROKEN (do not retry)
+### What is BROKEN
 - **`custom:bom-radar-card` (HACS) cannot work.** It fetches
   `https://api.weather.bom.gov.au/v1/radar/capabilities`, which **BOM retired in
   Dec 2024**. Verified: that path returns **HTTP 404**, while other endpoints on
@@ -313,6 +313,9 @@ weather dashboard.
   `Access-Control-Allow-Origin: *`**. The browser reports it as a CORS failure
   only because a 404 response carries no CORS headers, which masks the real
   cause. The card was installed and reverted; the windrose was restored.
+  Re-confirmed still 404 on 2026-09-16. **Note:** BOM *does* now have a working
+  replacement radar service (see below), but the card still cannot be pointed at
+  it, because that service restricts CORS to BOM's own origin.
 - **OpenWeatherMap minutely nowcast is unavailable to us.** HA's
   `openweathermap.get_minute_forecast` action requires integration mode `v3.0`
   (it fails on `current`/`forecast`). OWM now only sells **One Call API 4.0** to
@@ -340,6 +343,47 @@ BOM's **legacy** radar products are unaffected by the tiled-API removal:
   **server-side** (camera entity). CORS only broke the browser-based card.
 - Brisbane (Mt Stapylton) products: `IDR664` 64 km, **`IDR663` 128 km**,
   `IDR662` 256 km, `IDR661` 512 km (earliest warning).
+
+### BOM's NEW radar service (discovered 2026-09-16, WORKS server-side)
+BOM's current map viewer
+(`https://www.bom.gov.au/weather-and-climate/rain-radar-and-weather-maps`) does
+**not** use the retired API. It is backed by a standard **WMTS** service, found by
+capturing the page's network traffic:
+
+```
+https://api.bom.gov.au/apikey/v1/mapping/timeseries/wmts/1.0.0/
+  {layer}/default/{time}/GoogleMapsCompatible_BoM/{TileMatrix}/{TileRow}/{TileCol}.png
+```
+
+Capabilities: `.../wmts/1.0.0/WMTSCapabilities.xml` (~86 kB, 41 layers).
+Probe script: **`probe-bom-wmts.py`** (outside this repo, in `Code/`).
+
+Four non-obvious gotchas, each of which costs an afternoon if unknown:
+
+| Gotcha | Detail |
+|---|---|
+| Referer required | 404 without `Referer: https://www.bom.gov.au/`. No API key needed, despite the `/apikey/` path segment. |
+| CORS locked to BOM | `Access-Control-Allow-Origin` is the **literal** `https://www.bom.gov.au`, not `*`. Browser-side cards are blocked. **Server-side fetch only.** |
+| Time format lies | Capabilities advertise `2026-09-16T22:30:00Z`; the tile endpoint **404s on that** and requires minute precision, `2026-09-16T22:30Z`. |
+| Not slippy tiles | Max zoom **8**. `GoogleMapsCompatible_BoM` is cropped to Australia with its own origin (z4 is **3x3**, not 16x16), so indices must come from `TopLeftCorner` + `ScaleDenominator`, not web-mercator slippy maths. |
+
+- Radar frames: **9 frames, 5 min apart** (~40 min history).
+- z8 = 156 km per 256 px tile, i.e. **~0.61 km/px** — finer than the legacy
+  `IDR662` 256 km product.
+- Brisbane (−27.33, 153.07) at z8 = **col 34, row 15**; a 3x3 block around it all
+  returns 200.
+- Radar tiles are **transparent overlays**. A readable picture also needs the
+  basemap from a separate ArcGIS service:
+  `.../v1/mapping/basemaps/basemap_default/MapServer/tile/{z}/{y}/{x}`.
+- Useful sibling layers: `atm_surf_air_precip_rate_1hr_total_mm_h`,
+  `atm_surf_air_precip_accumulation_1hr_total_mm`.
+- **Still no nowcast.** All 41 layers were checked: the finest *future*
+  precipitation is **3-hourly probability**
+  (`atm_surf_air_precip_any_probability_percent_3hourly`, 7 days out). Nothing
+  minute-level, so "rain in X minutes" still needs a third party.
+
+Cost to use: a server-side script to set the Referer, stitch 2x2/3x3 tiles and
+composite the basemap. Higher quality than anything else here, but the most work.
 
 ### Option A - generic camera (free, works today, STATIC)
 ```yaml
@@ -387,14 +431,40 @@ real animated radar loop back.
 - **WillyWeather** ~$1.20/month with an HA integration (safepay) - adds warnings,
   tides, swell, and is the *supported* route to BOM-derived data (BOM's own API
   is not intended for third parties). But it does **not** provide minute-level
-  nowcasting.
+  nowcasting, and — checked 2026-09-16 — **it serves no radar imagery at all**.
+  The [API feature list](https://www.willyweather.com/info/api.html) is wind,
+  tides, rainfall, swell, sunrise/sunset, moon phases and UV. Their *app* shows
+  BOM radar, but that is not exposed through the API, and their free website
+  widgets are warnings and forecast graphs. **Not a route to a radar picture.**
+
+### Option E - Windy.com iframe (free, no key, IMPLEMENTED)
+This is what the dashboard now uses, in place of the windrose.
+
+```
+https://embed.windy.com/embed2.html?lat=-27.33&lon=153.07&...&overlay=radar&product=radar
+```
+
+- Embeds in the **built-in** `iframe` card. No HACS card, no API key, no
+  container.
+- Verified: `embed.windy.com` returns 200 with **no `X-Frame-Options` and no CSP
+  `frame-ancestors`**, so HA can frame it.
+- Windy's Australian radar is the **BOM national composite** (confirmed by Windy
+  staff on their community forum), so the source data is still BOM.
+- **It self-refreshes.** Observed advancing 9:11 AM -> 9:31 AM unattended, with
+  the echo pattern moving. No page reload needed, so it does not go stale.
+- It does **not** animate unless play is pressed. On the non-touch kitchen
+  display that is unreachable, so treat it as a live still, not a loop.
+- `zoom=8` spans Gympie -> Warwick (~0.6 km/px equivalent view); `zoom=7` widens
+  it. Tune `aspect_ratio` on the card to keep the 1920px page fit.
+- Trade-offs: Windy branding, a national composite rather than the local Brisbane
+  product, and a fairly heavy interactive map on an always-on display.
 
 ### Recommendation
-Pair two things: **Tomorrow.io for the number**, and either the **BOM camera**
-(free/instant/static) or **bom-local-service** (container, animated) for the
-picture. A static radar still is less useful than it sounds - without motion you
-cannot judge direction - so if the visual matters, bom-local-service is the
-better target than paying for anything.
+**Windy iframe for the picture** (done — cheapest path to a live, self-refreshing
+radar) and **Tomorrow.io for the "rain in X minutes" number** if that is still
+wanted. BOM's new WMTS is the higher-quality picture and is worth revisiting if
+the Windy composite proves too coarse, but it needs a server-side proxy and tile
+compositing. **WillyWeather is the wrong product for this** — it has no radar.
 
 ## Dependencies
 - Custom integration: **PowerSync** (Tesla/Amber/Solcast orchestration)
@@ -406,10 +476,14 @@ better target than paying for anything.
     card-mod's `$` piercing syntax (see comments in `weather_dashboard.yaml`).
   - `apexcharts-card` — Solcast forecast-vs-actual charts
   - `mini-graph-card` — weather trend graphs (temp, lightning activity)
-  - `windrose-card` — wind direction history rose
   - `sensor-bar-card-plus` — lightning storm-proximity bar
   - `multiple-logbook-card` — activity log dashboard
     (this is NOT the similarly-named `logbook-card`)
+- No longer required (safe to uninstall from HACS):
+  - `windrose-card` — was the wind direction rose in row 2b, replaced by the
+    Windy radar iframe. Wind speed/direction/gust now live in the Right Now and
+    Wind panels instead.
+  - `bom-radar-card` — trialled and reverted, cannot work (see Rain radar above).
 
 ## Notes
 - This is a partial config: `automations.yaml`, `scripts.yaml`, `scenes.yaml`,
