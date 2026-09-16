@@ -353,10 +353,27 @@ views:
           # unless play is pressed, which nobody can do on a non-touch screen.
           # Treat this as a live still, not a loop.
           - type: iframe
-            # aspect_ratio drives the height. Tune this to line the row up with
-            # Storm Watch beside it: the windrose this replaced was auto-height,
-            # so the exact 1920px whole-page fit may need a nudge here.
-            aspect_ratio: 105%
+            # HEIGHT: in a `sections` view the SECTION GRID row span controls the
+            # height and `aspect_ratio` is IGNORED - measured on the live 1080px
+            # portrait display, aspect_ratio: 105% produced a 248px tall card,
+            # nowhere near 105% of the 364px column width. Use grid_options.rows.
+            #
+            # Row arithmetic: height = 64*rows - 8  (56px row + 8px gap)
+            #   rows: 4 -> 248px   (the original, left ~300px of dead space)
+            #   rows: 8 -> 504px   <- current, almost exactly double
+            #   rows: 9 -> 568px   (overflows: see below)
+            #
+            # Why 8 and not 9: Storm Watch in the left column of this same row
+            # measures 545px (top 300 -> 845). rows: 8 = 504px tucks inside that,
+            # so the row band and the exact 1920px page fit are UNCHANGED and
+            # nothing scrolls. rows: 9 = 568px would exceed the left column by
+            # ~23px and push the whole page over 1920.
+            #
+            # A taller viewport does NOT distort the map. Windy is a live map,
+            # not a fixed-ratio image, so extra height simply reveals more
+            # north-south geography at the same zoom.
+            grid_options:
+              rows: 8
             url: >-
               https://embed.windy.com/embed2.html?lat=-27.33&lon=153.07&detailLat=-27.33&detailLon=153.07&zoom=8&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
       # ======================================================================
