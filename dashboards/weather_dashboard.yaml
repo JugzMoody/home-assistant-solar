@@ -344,10 +344,30 @@ views:
           #    frame-ancestors. Its Australian radar is the BOM national
           #    composite, so the underlying data is still BOM.
           #
-          # zoom=8 spans roughly Gympie -> Warwick, enough upstream view to see
-          # a system approaching. zoom=7 widens it if that proves too tight.
+          # ZOOM: 9 spans roughly Caloundra -> Jimboomba and Esk -> Moreton Bay
+          # (~98 x 136 km in this 362x502 panel, ~272 m/px). zoom=8 covers four
+          # times the area and so gives more upstream warning time, at the cost
+          # of local detail - swap back if she wants to see systems earlier.
           # The kitchen display is NOT a touch screen, so Windy's own zoom and
           # play controls are inert decoration and the view stays fixed.
+          #
+          # THE PIN CANNOT BE MOVED (tested 2026-09-17). lat/lon set the map
+          # centre and DO work, but detailLat/detailLon do NOT position the
+          # marker: setting them to Ipswich while centred here left Windy's dot
+          # unmoved on Brisbane CBD. Windy snaps its marker to the nearest
+          # recognised city and ignores arbitrary coordinates. The iframe is
+          # cross-origin, so card-mod cannot reach inside to restyle or hide that
+          # dot either.
+          #   Workaround used here: centre on the EXACT HA home coordinates
+          #   (source of record: /api/config latitude/longitude), so the house is
+          #   the dead centre of the panel. Windy's Brisbane dot then sits ~17 km
+          #   south of centre and reads as a city label rather than as "you".
+          #   If an explicit house marker is ever wanted, a card-mod ::after
+          #   crosshair at 50%/50% lands exactly on the house, because the centre
+          #   and zoom are both fixed.
+          #
+          # Also avoid marker=true: it adds a value-readout panel ("0 dBZ") and a
+          # leader line that cover the top-right of the map.
           #
           # NOTE: the embed opens on the CURRENT frame and does not animate
           # unless play is pressed, which nobody can do on a non-touch screen.
@@ -374,8 +394,11 @@ views:
             # north-south geography at the same zoom.
             grid_options:
               rows: 8
+            # lat/lon = map centre = HA's configured home (-27.3160078,
+            # 153.0326479). detailLat/detailLon are kept in step with it only for
+            # tidiness; they do not move the marker (see note above).
             url: >-
-              https://embed.windy.com/embed2.html?lat=-27.33&lon=153.07&detailLat=-27.33&detailLon=153.07&zoom=8&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
+              https://embed.windy.com/embed2.html?lat=-27.3160078&lon=153.0326479&detailLat=-27.3160078&detailLon=153.0326479&zoom=9&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
       # ======================================================================
       # ROW 3a - TEMPERATURE (medium)
       # ======================================================================
