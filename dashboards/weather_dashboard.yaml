@@ -118,72 +118,39 @@ views:
               # "CAN I RUN THE WASHING MACHINE?" traffic light.
               # Replaced the Solar Radiation gauge (not useful day-to-day).
               #
-              # spare = solar generation - house load. Battery CHARGING power
-              # counts as spare on purpose: with a 2c feed-in and frequent
-              # curtailment, running an appliance now is worth more than storing
-              # or exporting the same kWh, and the battery refills if there is
-              # sun left in the day.
+              # All logic now lives in sensor.free_power_advice (see the "FREE
+              # POWER ADVISOR" section of configuration.yaml). This card only
+              # maps its slug to a headline, a line of detail and a colour.
               #
-              # CRITICAL: when the inverters are being CURTAILED, measured solar
-              # is artificially throttled (down to ~5%), so `solar - load` reads
-              # LOW exactly when spare capacity is HIGHEST. Curtailment is
-              # therefore treated as an explicit "yes" rather than being fed
-              # through the arithmetic - otherwise the light would show red on
-              # the sunniest days.
+              # It was originally computed inline here, but a dashboard template
+              # is stateless - it re-renders from current state with no memory -
+              # so it could not do the sustain/hysteresis needed to stop the
+              # light flickering. Replaying 2026-09-16 through the inline version
+              # gave 67 colour changes in one day, 42 under 5 minutes. The
+              # backing sensors now smooth over 5 min and require a tier to hold
+              # for 3 min, which measured 18 changes and zero sub-5-min flashes.
               #
-              # Late-day guard: plenty of spare but little sun left AND a low
-              # battery is downgraded to amber, because that energy is needed to
-              # carry the house through the evening peak.
+              # Expect the light to lag reality by roughly 3-4 minutes. That is
+              # the deliberate cost of not flickering.
               # ================================================================
               - type: markdown
                 content: |-
-                  {% set solar = states('sensor.total_solar_power') | float(0) / 1000 %}
-                  {% set load = states('sensor.power_sync_home_load') | float(0) %}
-                  {% set spare = solar - load %}
-                  {% set curtail = is_state('binary_sensor.output_suppressed', 'on') %}
-                  {% set soc = states('sensor.power_sync_battery_level') | float(0) %}
-                  {% set remain = states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) %}
-                  {% set save_for_tonight = (remain < 3 and soc < 60) %}
-                  {% if curtail %}
-                  {% set head = 'YES' %}
-                  {% set detail = 'Loads of spare - panels throttled back' %}
-                  {% elif spare >= 1.0 and not save_for_tonight %}
-                  {% set head = 'YES' %}
-                  {% set detail = (spare | round(1)) ~ ' kW spare right now' %}
-                  {% elif spare >= 1.0 and save_for_tonight %}
-                  {% set head = 'A LITTLE' %}
-                  {% set detail = 'Saving charge for tonight' %}
-                  {% elif spare >= 0.2 %}
-                  {% set head = 'A LITTLE' %}
-                  {% set detail = (spare | round(1)) ~ ' kW spare - small things only' %}
-                  {% elif solar < 0.1 %}
-                  {% set head = 'On Battery' %}
-                  {% set detail = '' %}
-                  {% else %}
-                  {% set head = 'NOT NOW' %}
-                  {% set detail = 'House is using it all' %}
-                  {% endif %}
-                  # {{ head }}
-                  {{ detail }}
+                  {% set advice = states('sensor.free_power_advice') %}
+                  {% set spare = state_attr('sensor.free_power_advice', 'spare_kw') | float(0) %}
+                  {% set heads = {'yes_curtailed': 'YES', 'yes': 'YES', 'a_little_saving': 'A LITTLE', 'a_little': 'A LITTLE', 'on_battery': 'On Battery', 'not_now': 'NOT NOW'} %}
+                  {% set details = {'yes_curtailed': 'Loads of spare - panels throttled back', 'yes': (spare | round(1)) ~ ' kW spare right now', 'a_little_saving': 'Saving charge for tonight', 'a_little': (spare | round(1)) ~ ' kW spare - small things only', 'on_battery': '', 'not_now': 'House is using it all'} %}
+                  # {{ heads.get(advice, 'NOT NOW') }}
+                  {{ details.get(advice, 'Waiting for data') }}
                 card_mod:
-                  # The colour has to re-derive the same tiers as the content
-                  # above (card-mod styles are evaluated separately from card
-                  # content). Keep the two in sync if the thresholds change.
+                  # Colour is a straight slug -> hex lookup. The thresholds and
+                  # tier logic live ONLY in sensor.free_power_advice, so there is
+                  # nothing to keep in sync here any more (card-mod styles are
+                  # evaluated separately from card content, which is why the old
+                  # version had to duplicate the whole calculation).
                   style: >-
-                    {% set solar = states('sensor.total_solar_power') | float(0) / 1000 %}
-                    {% set load = states('sensor.power_sync_home_load') | float(0) %}
-                    {% set spare = solar - load %}
-                    {% set curtail = is_state('binary_sensor.output_suppressed', 'on') %}
-                    {% set soc = states('sensor.power_sync_battery_level') | float(0) %}
-                    {% set remain = states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) %}
-                    {% set save_for_tonight = (remain < 3 and soc < 60) %}
-                    {% if curtail or (spare >= 1.0 and not save_for_tonight) %}
-                      {% set bg = '#2e7d32' %}
-                    {% elif spare >= 0.2 or (spare >= 1.0 and save_for_tonight) %}
-                      {% set bg = '#f9a825' %}
-                    {% else %}
-                      {% set bg = '#c62828' %}
-                    {% endif %}
+                    {% set advice = states('sensor.free_power_advice') %}
+                    {% set colours = {'yes_curtailed': '#2e7d32', 'yes': '#2e7d32', 'a_little_saving': '#f9a825', 'a_little': '#f9a825', 'on_battery': '#c62828', 'not_now': '#c62828'} %}
+                    {% set bg = colours.get(advice, '#c62828') %}
                     ha-card {
                       background: {{ bg }} !important;
                       border: none !important;

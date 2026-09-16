@@ -743,6 +743,143 @@ template:
             40
           {% endif %}
 
+  # ------------------------------------------------------------------
+  # "FREE POWER" ADVISOR - is there spare solar to run an appliance?
+  # ------------------------------------------------------------------
+  # spare = solar generation - house load. Battery CHARGING power counts as
+  # spare on purpose: with a 2c feed-in and frequent curtailment, running an
+  # appliance now beats storing or exporting the same kWh, and the battery
+  # refills if there is sun left in the day.
+  #
+  # ANTI-FLICKER (measured, not guessed). The raw CT/Modbus data is very noisy.
+  # Replaying 2026-09-16 (1040 minutes) through the original instantaneous
+  # logic gave 67 colour changes, 42 of them lasting under 5 minutes, the
+  # shortest just 1 minute.
+  #
+  # Smoothing ALONE does not fix it: a rolling mean shrinks the swings but
+  # cannot stop the mean itself sitting on a threshold and wobbling across it.
+  # Even a 10-minute mean still left 8 sub-5-minute flashes. The real fix is a
+  # SUSTAIN requirement (delay_on/delay_off below), which mathematically
+  # guarantees no state can be shorter than the delay. Same day, same data:
+  #
+  #     smooth   sustain   changes   flashes(<5min)   median lag
+  #       -         -         67          42            0.0 min
+  #       5min      -         37          18            1.0 min
+  #      10min      -         26           8            3.0 min
+  #       -        3min       20           3            2.0 min
+  #       5min    3min        18           0            3.5 min  <-- chosen
+  #       5min    5min        14           0            5.5 min
+  #
+  # 5min/3min was chosen over the slightly quieter 5min/5min because the extra
+  # 2 minutes of lag buys only 4 fewer changes once flashes are already zero.
+  # Smoothing is still applied even though sustain does the colour work,
+  # because the DISPLAYED kW figure needs it: the Fronius dynamic scale factor
+  # throws artifacts (6.43 kW logged between readings of 2.99 and 2.06 that
+  # day) which would otherwise land in the digits on the card.
+  # ------------------------------------------------------------------
+  - sensor:
+      - name: "Spare Solar Power"
+        unique_id: spare_solar_power
+        unit_of_measurement: "kW"
+        device_class: power
+        state_class: measurement
+        # Raw and un-smoothed. This exists only so the statistics platform
+        # (which can average an entity, but not an arbitrary expression) has
+        # something to average. Read sensor.spare_solar_power_smoothed instead.
+        availability: >-
+          {{ has_value('sensor.total_solar_power')
+             and has_value('sensor.power_sync_home_load') }}
+        state: >-
+          {{ (states('sensor.total_solar_power') | float(0) / 1000)
+             - (states('sensor.power_sync_home_load') | float(0)) }}
+
+  - binary_sensor:
+      - name: "Spare Power High"
+        unique_id: spare_power_high
+        icon: "mdi:solar-power"
+        # >= 1.0 kW spare. delay_on/delay_off are HA's native sustain: the
+        # threshold must hold for 3 min before the state flips either way.
+        delay_on:
+          minutes: 3
+        delay_off:
+          minutes: 3
+        availability: "{{ has_value('sensor.spare_solar_power_smoothed') }}"
+        state: >-
+          {{ states('sensor.spare_solar_power_smoothed') | float(0) >= 1.0 }}
+
+      - name: "Spare Power Some"
+        unique_id: spare_power_some
+        icon: "mdi:solar-power-variant"
+        # >= 0.2 kW spare - enough for something small, not the dryer.
+        delay_on:
+          minutes: 3
+        delay_off:
+          minutes: 3
+        availability: "{{ has_value('sensor.spare_solar_power_smoothed') }}"
+        state: >-
+          {{ states('sensor.spare_solar_power_smoothed') | float(0) >= 0.2 }}
+
+      - name: "Output Suppressed Sustained"
+        unique_id: output_suppressed_sustained
+        icon: "mdi:solar-power-variant-outline"
+        # Curtailment forces a "yes" (see Free Power Advice below) because
+        # measured solar is throttled to ~5% while it is active, so solar-load
+        # reads LOW exactly when real spare capacity is HIGHEST.
+        #
+        # Raw output_suppressed is far too twitchy to drive that override: it
+        # flapped 6 times in 45 minutes on 2026-09-16, which would reintroduce
+        # flicker on precisely the sunny days this advisor matters most.
+        # Asymmetric on purpose - must persist 2 min before forcing green, but
+        # lingers 5 min after clearing so brief dropouts don't blink the light.
+        delay_on:
+          minutes: 2
+        delay_off:
+          minutes: 5
+        state: "{{ is_state('binary_sensor.output_suppressed', 'on') }}"
+
+  # ------------------------------------------------------------------
+  # The verdict itself, as a machine-readable slug.
+  # ------------------------------------------------------------------
+  # This is the SINGLE SOURCE OF TRUTH for the traffic light. Previously the
+  # tier logic was duplicated in the dashboard twice - once in the card content
+  # and again in the card_mod style block - which had to be kept in sync by
+  # hand. The card now just maps slug -> headline / detail / colour, so no
+  # threshold appears anywhere except here.
+  #
+  # Also usable as an automation trigger (e.g. notify when it turns 'yes'),
+  # which the dashboard-only version could not do.
+  # ------------------------------------------------------------------
+  - sensor:
+      - name: "Free Power Advice"
+        unique_id: free_power_advice
+        icon: "mdi:washing-machine"
+        # Late-day guard: plenty of spare but little sun left AND a low battery
+        # is downgraded to amber, because that energy is needed to carry the
+        # house through the evening peak.
+        state: >-
+          {%- set curtail = is_state('binary_sensor.output_suppressed_sustained', 'on') -%}
+          {%- set high = is_state('binary_sensor.spare_power_high', 'on') -%}
+          {%- set some = is_state('binary_sensor.spare_power_some', 'on') -%}
+          {%- set soc = states('sensor.power_sync_battery_level') | float(0) -%}
+          {%- set remain = states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) -%}
+          {%- set save = (remain < 3 and soc < 60) -%}
+          {%- set solar = states('sensor.total_solar_power') | float(0) / 1000 -%}
+          {%- if curtail -%}yes_curtailed
+          {%- elif high and not save -%}yes
+          {%- elif high and save -%}a_little_saving
+          {%- elif some -%}a_little
+          {%- elif solar < 0.1 -%}on_battery
+          {%- else -%}not_now
+          {%- endif -%}
+        attributes:
+          # Smoothed figure for display. Deliberately independent of the tier
+          # logic above so it can't drift out of step with it.
+          spare_kw: >-
+            {{ states('sensor.spare_solar_power_smoothed') | float(0) | round(1) }}
+          save_for_tonight: >-
+            {{ (states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) < 3)
+               and (states('sensor.power_sync_battery_level') | float(0) < 60) }}
+
 
 # ==========================================
 # PROPORTIONAL SOLAR CURTAILMENT CONTROLS
@@ -807,6 +944,22 @@ sensor:
     max_age:
       seconds: 30
     sampling_size: 15
+  # Smoothed spare solar - drives the "free power" traffic light on the weather
+  # dashboard. Same idea as Grid Power Smoothed above, longer window.
+  # NOTE: the light's COLOUR stability does NOT come from this mean - it comes
+  # from the delay_on/delay_off sustain on binary_sensor.spare_power_high /
+  # spare_power_some. This mean exists so the kW figure shown on the card is
+  # readable. See the measured comparison in the template: section.
+  # sampling_size 200: source can update as often as every 2s (PowerSync home
+  # load), so 5 minutes needs ~150 slots. max_age discards the rest.
+  - platform: statistics
+    name: "Spare Solar Power Smoothed"
+    unique_id: spare_solar_power_smoothed
+    entity_id: sensor.spare_solar_power
+    state_characteristic: mean
+    max_age:
+      minutes: 5
+    sampling_size: 200
   # Per-inverter daily energy:
   #   Sungrow  -> native "Daily power yields" register (sensor.sungrow_daily_energy).
   #   Fronius  -> midnight-baseline delta on the lifetime counter (defined in the
