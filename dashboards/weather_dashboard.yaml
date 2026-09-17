@@ -358,24 +358,25 @@ views:
             # Matches the zoom the Windy panel settled on (~98 km across this
             # 362px-wide card). Valid range is 3-10.
             #
-            # CAVEAT measured 2026-09-17: RainViewer tiles come back at z7 (its
-            # native resolution) regardless of this setting, so at zoom_level 9
-            # the imagery is magnified 4x and echo renders as visibly blocky
-            # squares. zoom_level 8 halves that; 7 is 1:1 sharp and shows 4x the
-            # area. Kept at 9 because that is the framing already chosen, but
-            # 7-8 is the better trade if the blockiness grates - sharper cells
-            # and more upstream warning, at the cost of local detail.
-            zoom_level: 9
+            # RainViewer tiles come back at z7 (its native resolution) regardless
+            # of this setting - confirmed by network trace, which requested
+            # z7/118/73 while the view was at zoom_level 9. So this value sets the
+            # MAGNIFICATION of native pixels, not the detail available:
+            #   zoom_level 9 -> 4x magnification, echo renders as blocky squares
+            #   zoom_level 8 -> 2x magnification   <- current
+            #   zoom_level 7 -> 1:1, pixel-sharp, and 4x the area on screen
+            # 8 is the compromise: noticeably less blocky than 9 while keeping a
+            # local framing, and it widens the upstream view a little as a bonus.
+            zoom_level: 8
             # Grey = Esri Light Grey Canvas. Chosen because CARTO now stamps an
             # "API key required" watermark on its free Light/Dark/Voyager tiles;
             # Grey and GreyDark are the only styles that need no key at all.
             map_style: Grey
-            # Esri Light Grey Canvas is very sparse - at this size it labelled
-            # only "Brisbane", where the previous Windy panel showed Caboolture,
-            # Ipswich, Caloundra and Gympie. Place names are what let you judge
-            # whether a cell is heading here, so turn on the denser label set
-            # (labels render smaller as a result).
-            extra_labels: true
+            # extra_labels deliberately left OFF (default). Its only effect is to
+            # pack in more place names by shrinking them, and this location is
+            # read off coastline instead - Moreton Bay, the bay islands and the
+            # river are unmistakable, so sparse-but-larger labels beat dense-but-
+            # smaller ones here.
             # Non-touch display: lock the view so it can never be left panned or
             # zoomed off-target, and hide controls nobody can press.
             static_map: true
