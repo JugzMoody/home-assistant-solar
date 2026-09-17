@@ -442,11 +442,23 @@ views:
                   pointer-events: none !important;
                   z-index: 2 !important;
                 }
-            # lat/lon = map centre = HA's configured home (-27.3160078,
-            # 153.0326479). detailLat/detailLon are kept in step with it only for
-            # tidiness; they do not move the marker (see note above).
+            # lat/lon = map centre = HA's configured home, currently
+            # -27.3168482, 153.0355275 (Settings > System > General > Edit
+            # location, stored in .storage/core.config - NOT in this repo's
+            # configuration.yaml, which is why there is no latitude:/longitude:
+            # key there to keep in step).
+            #
+            # These MUST be updated by hand if the HA location is ever moved: an
+            # iframe card's url is not templatable, so it cannot read zone.home
+            # or the config latitude. Re-read the live values with:
+            #   .venv\Scripts\python.exe -c "import ha; c=ha._get('/api/config'); print(c['latitude'], c['longitude'])"
+            #
+            # detailLat/detailLon are kept in step only for tidiness; they do not
+            # move any marker (see note above). The red home marker is the
+            # card-mod ::after dot, which tracks the map CENTRE, so keeping these
+            # in sync with HA is what keeps that dot on the house.
             url: >-
-              https://embed.windy.com/embed2.html?lat=-27.3160078&lon=153.0326479&detailLat=-27.3160078&detailLon=153.0326479&zoom=9&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
+              https://embed.windy.com/embed2.html?lat=-27.3168482&lon=153.0355275&detailLat=-27.3168482&detailLon=153.0355275&zoom=9&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
       # ======================================================================
       # ROW 3a - TEMPERATURE (medium)
       # ======================================================================
