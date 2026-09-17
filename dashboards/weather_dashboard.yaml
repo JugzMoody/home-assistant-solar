@@ -394,6 +394,54 @@ views:
             # north-south geography at the same zoom.
             grid_options:
               rows: 8
+            # HOME MARKER. Windy's own blue dot cannot be moved OR removed
+            # (confirmed 2026-09-17, three ways):
+            #   1. No URL param suppresses it - detailLat, detailLon, location,
+            #      detail and marker were all stripped and it still rendered.
+            #   2. The iframe is cross-origin, so neither JS nor CSS can reach
+            #      inside. iframe.contentDocument is null and contentWindow
+            #      throws SecurityError. Note card-mod's `$` shadow-DOM piercing
+            #      does NOT apply here: an iframe is a separate document, not a
+            #      shadow root.
+            #   3. Windy's own forum states the location dot cannot be removed on
+            #      the radar layer. It is derived from server-side IP geolocation
+            #      (it appears with no permission prompt, at the Brisbane CBD IP
+            #      centroid), so there is no permission to revoke either.
+            #
+            # So we draw our OWN marker instead. This works because the map centre
+            # and zoom are both FIXED, which makes the house's pixel position
+            # deterministic: it is the exact centre of the viewport. Verified by
+            # landmark check - Caloundra at the top edge and Jimboomba at the
+            # bottom bracket latitude -27.31 at the vertical midpoint.
+            #
+            # Red core + white ring + dark outline so it stays legible over grey
+            # land, dark topography and coloured radar echo alike. A RING shape
+            # is deliberate: it reads as a UI marker rather than as precipitation,
+            # which matters because Windy's dBZ palette runs to red/magenta at the
+            # top end and a plain red blob could be mistaken for a heavy cell.
+            card_mod:
+              style: |
+                ha-card {
+                  position: relative !important;
+                  overflow: hidden !important;
+                }
+                /* ::after paints after #root (which holds the iframe), so the
+                   marker sits above the map without needing to touch it. */
+                ha-card::after {
+                  content: "";
+                  position: absolute !important;
+                  top: 50% !important;
+                  left: 50% !important;
+                  width: 10px !important;
+                  height: 10px !important;
+                  margin: -5px 0 0 -5px !important;
+                  border-radius: 50% !important;
+                  background: #ff1744 !important;
+                  border: 2px solid #ffffff !important;
+                  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7) !important;
+                  pointer-events: none !important;
+                  z-index: 2 !important;
+                }
             # lat/lon = map centre = HA's configured home (-27.3160078,
             # 153.0326479). detailLat/detailLon are kept in step with it only for
             # tidiness; they do not move the marker (see note above).
