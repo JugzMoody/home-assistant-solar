@@ -1047,8 +1047,19 @@ rest:
       - name: "Rain Onset Minutes"
         unique_id: rain_onset_minutes
         unit_of_measurement: "min"
-        state_class: measurement
         icon: "mdi:weather-rainy"
+        # DELIBERATELY NO state_class. This sensor is non-numeric ('unknown')
+        # whenever the next hour is dry, and state_class: measurement is a promise
+        # that the value is ALWAYS numeric - HA enforces it by refusing to add the
+        # entity at all:
+        #   ValueError: ... state class 'measurement' unit 'min' ... thus
+        #   indicating it has a numeric value; however, it has the non-numeric
+        #   value: 'unknown'
+        # The entity then shows as `unavailable`, not `unknown`, which is the
+        # symptom to recognise. It is also the wrong semantics regardless: this is
+        # a countdown that resets, not a measurement worth aggregating into
+        # long-term statistics. The two sensors below keep state_class because
+        # mm/h and % genuinely are measurements and are always numeric.
         # JINJA TRAP: must be m['values'], NOT m.values. The payload key is
         # literally called "values", which collides with Python's dict.values
         # method - Jinja resolves the attribute before the item, so m.values
