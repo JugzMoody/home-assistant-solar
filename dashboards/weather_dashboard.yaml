@@ -443,7 +443,7 @@ views:
                   z-index: 2 !important;
                 }
             # lat/lon = map centre = HA's configured home, currently
-            # -27.3168482, 153.0355275 (Settings > System > General > Edit
+            # -27.3168830, 153.0354670 (Settings > System > General > Edit
             # location, stored in .storage/core.config - NOT in this repo's
             # configuration.yaml, which is why there is no latitude:/longitude:
             # key there to keep in step).
@@ -458,7 +458,7 @@ views:
             # card-mod ::after dot, which tracks the map CENTRE, so keeping these
             # in sync with HA is what keeps that dot on the house.
             url: >-
-              https://embed.windy.com/embed2.html?lat=-27.3168482&lon=153.0355275&detailLat=-27.3168482&detailLon=153.0355275&zoom=9&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
+              https://embed.windy.com/embed2.html?lat=-27.3168830&lon=153.0354670&detailLat=-27.3168830&detailLon=153.0354670&zoom=9&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
       # ======================================================================
       # ROW 3a - TEMPERATURE (medium)
       # ======================================================================
