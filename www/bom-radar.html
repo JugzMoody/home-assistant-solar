@@ -124,6 +124,7 @@
   var frames = [];      // { stamp, img }
   var idx = 0;
   var timer = null;
+  var stampTimer = null;
   var newestKnown = null;
 
   function clampInt(v, dflt, lo, hi) {
@@ -274,7 +275,24 @@
         frames.forEach(function (f, j) { if (j !== i) f.img.style.opacity = '0'; });
       }, FADE);
     }
-    if (stampEl) stampEl.textContent = labelOf(frames[i].stamp);
+    /* TIMESTAMP TIMING. Updating the badge at the START of a transition makes it
+       name a frame that is not visible yet: with the sequential crossfade the
+       OUTGOING frame is held at full opacity for the whole fade, so at
+       FADE=300ms against DELAY=450ms the badge disagreed with BOM's own burned-in
+       caption for about two thirds of each cycle - observed as badge 2:54 PM over
+       an image captioned 04:49 UTC, a full frame out.
+       The incoming frame becomes visually dominant when its opacity passes 0.5,
+       i.e. at FADE/2, so that is when the label is swapped. Hard cuts are
+       instant, so they update immediately. */
+    if (stampEl) {
+      var label = labelOf(frames[i].stamp);
+      if (hard || FADE < 40) {
+        stampEl.textContent = label;
+      } else {
+        clearTimeout(stampTimer);
+        stampTimer = setTimeout(function () { stampEl.textContent = label; }, FADE / 2);
+      }
+    }
   }
 
   function step() {

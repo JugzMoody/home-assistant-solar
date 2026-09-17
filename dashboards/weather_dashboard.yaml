@@ -352,13 +352,119 @@ views:
           #
           # Bump ?v= to bust the browser cache after editing the html.
           - type: iframe
-            url: /local/bom-radar.html?v=1
+            url: /local/bom-radar.html?v=2
             # Square composite in a 362px-wide cell wants a near-square cell.
             # height = 64*rows - 8, so rows: 6 -> 376px against a 362px width.
             # Still well inside Storm Watch's 545px in the left column, so the
             # row band and the exact 1920px page fit are unchanged.
             grid_options:
               rows: 6
+          # ================================================================
+          # RAIN NOWCAST - the one thing the radar cannot tell you: WHEN it
+          # gets here. Fed by the Tomorrow.io rest sensors in configuration.yaml
+          # (60 x 1-minute steps, 59-minute horizon).
+          #
+          # Sits in what was ~188px of dead space: the Storm Watch stack in the
+          # left column of this row measures 564px while the square radar can only
+          # be 376px, and the radar cannot grow into the gap because it is
+          # width-constrained at 362px.
+          #
+          # PROSE, not a table or a graph, on purpose:
+          #  * Most glances are DRY, so the null state has to look good. A table
+          #    of zeros or a flat line at the bottom of a chart is dead space
+          #    almost all the time; one short line is not.
+          #  * A 4-column table in 362px forces text too small to read from
+          #    across the kitchen, which is this display's whole constraint.
+          #  * A curve needs interpreting. The actual question is "can I hang the
+          #    washing out", and a sentence answers that directly.
+          #  * A curve would also need the full 60-point series stored as an
+          #    attribute; HA's rest platform can only extract raw JSON keys, not
+          #    computed or downsampled ones, so it would mean holding the whole
+          #    29 kB payload in the state machine. Prose needs only scalars.
+          #
+          # Deliberately mirrors the traffic light's h1 + p structure, which is
+          # already proven legible on this screen.
+          #
+          # THREE states, and the third matters: "no data" is NOT "dry". If the
+          # fetch fails, saying DRY would be falsely reassuring, so a failed
+          # forecast is shown as such in grey.
+          - type: markdown
+            content: |-
+              {% set peak_raw = states('sensor.rain_next_hour_peak') %}
+              {% set have = peak_raw not in ['unknown','unavailable','none',''] %}
+              {% set onset_raw = states('sensor.rain_onset_minutes') %}
+              {% set coming = onset_raw not in ['unknown','unavailable','none',''] %}
+              {% set m = onset_raw | int(-1) %}
+              {% set peak = peak_raw | float(0) %}
+              {% set chance = states('sensor.rain_next_hour_chance') | float(0) %}
+              {% set band = 'Heavy' if peak >= 7.5 else ('Moderate' if peak >= 2.5 else 'Light') %}
+              {% if not have %}
+              {% set head = 'NO DATA' %}
+              {% set detail = 'Rain forecast unavailable' %}
+              {% elif not coming %}
+              {% set head = 'DRY' %}
+              {% set detail = ('Nothing in the next hour' if chance < 10 else (chance | round(0) | int) ~ '% chance, nothing significant') %}
+              {% elif m <= 0 %}
+              {% set head = 'RAINING NOW' %}
+              {% set detail = band ~ ', up to ' ~ peak ~ ' mm/h' %}
+              {% else %}
+              {% set head = 'RAIN IN ' ~ m ~ ' MIN' %}
+              {% set detail = band ~ ' - ' ~ (chance | round(0) | int) ~ '% chance' ~ (' (uncertain)' if chance < 50 else '') %}
+              {% endif %}
+              # {{ head }}
+              {{ detail }}
+            card_mod:
+              # Slug -> colour, same approach as the traffic light: no thresholds
+              # duplicated here, the tiers live in the content template above.
+              # Dry stays on the default card background on purpose - it should
+              # not shout when there is nothing to say.
+              style: >-
+                {% set peak_raw = states('sensor.rain_next_hour_peak') %}
+                {% set have = peak_raw not in ['unknown','unavailable','none',''] %}
+                {% set coming = states('sensor.rain_onset_minutes') not in ['unknown','unavailable','none',''] %}
+                {% if not have %}
+                  {% set bg = '#616161' %}
+                  {% set fg = '#ffffff' %}
+                {% elif coming %}
+                  {% set bg = '#1565c0' %}
+                  {% set fg = '#ffffff' %}
+                {% else %}
+                  {% set bg = 'var(--ha-card-background, var(--card-background-color))' %}
+                  {% set fg = 'var(--primary-text-color)' %}
+                {% endif %}
+                ha-card {
+                  background: {{ bg }} !important;
+                  border: none !important;
+                  text-align: center !important;
+                  color: {{ fg }} !important;
+                  height: 100% !important;
+                  box-sizing: border-box !important;
+                  display: flex !important;
+                  flex-direction: column !important;
+                  justify-content: center !important;
+                  align-items: center !important;
+                }
+                ha-card h1 {
+                  /* 26px, not 32: "RAIN IN 12 MIN" is longer than any traffic
+                     light headline and wraps at 32px in this 362px column. */
+                  font-size: 26px !important;
+                  font-weight: 800 !important;
+                  line-height: 1.15 !important;
+                  margin: 2px 0 6px 0 !important;
+                  border-bottom: none !important;
+                  color: {{ fg }} !important;
+                }
+                ha-card p {
+                  font-size: 15px !important;
+                  line-height: 1.3 !important;
+                  margin: 0 !important;
+                  color: {{ fg }} !important;
+                }
+            # rows: 3 = 184px, which fills the gap under the radar. Combined with
+            # the radar's 376px that is 568px against Storm Watch's 564px, so the
+            # row band grows by only ~4px and the page stays well inside 1920.
+            grid_options:
+              rows: 3
       # ======================================================================
       # ROW 3a - TEMPERATURE (medium)
       # ======================================================================
