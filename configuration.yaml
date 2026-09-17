@@ -1075,7 +1075,8 @@ rest:
         # Subscript notation sidesteps it. (The two sensors below dodge this by
         # accident because map(attribute='values.x') resolves items differently.)
         value_template: >-
-          {%- set ml = value_json.timelines.minutely | default([], true) -%}
+          {%- set tl = value_json.timelines | default({}, true) -%}
+          {%- set ml = tl.minutely | default([], true) -%}
           {%- set ns = namespace(t=none) -%}
           {%- for m in ml -%}
             {%- if ns.t is none and (m['values']['rainIntensity'] | float(0)) >= 0.2 -%}
@@ -1095,13 +1096,23 @@ rest:
         unit_of_measurement: "mm/h"
         state_class: measurement
         icon: "mdi:weather-pouring"
+        # availability, rather than emitting the string 'unknown' when the payload
+        # is missing. A sensor carrying a unit or state_class MUST always be
+        # numeric - returning 'unknown' is what stopped rain_onset_minutes from
+        # loading at all. `unavailable` is permitted for numeric sensors, a bare
+        # 'unknown' string is not, so this closes the same latent trap here.
+        # Two-step default, NOT value_json.timelines.minutely is defined - if the
+        # response has no `timelines` key at all (error page, auth failure), that
+        # chains an attribute onto an Undefined and the AVAILABILITY template
+        # itself raises, defeating the guard. Resolving one level at a time with
+        # `default` keeps it safe for any malformed payload.
+        availability: >-
+          {%- set tl = value_json.timelines | default({}, true) -%}
+          {{ (tl.minutely | default([], true) | count) > 0 }}
         value_template: >-
-          {%- set ml = value_json.timelines.minutely | default([], true) -%}
-          {%- if ml | count == 0 -%}
-            unknown
-          {%- else -%}
-            {{ ml | map(attribute='values.rainIntensity') | map('float', 0) | max | round(2) }}
-          {%- endif -%}
+          {{ value_json.timelines.minutely
+             | map(attribute='values.rainIntensity') | map('float', 0)
+             | max | round(2) }}
 
       # Highest probability in the hour. Useful on its own: a 30% chance that
       # never crosses the intensity threshold still means "might sprinkle".
@@ -1110,10 +1121,52 @@ rest:
         unit_of_measurement: "%"
         state_class: measurement
         icon: "mdi:water-percent"
+        # Two-step default, NOT value_json.timelines.minutely is defined - if the
+        # response has no `timelines` key at all (error page, auth failure), that
+        # chains an attribute onto an Undefined and the AVAILABILITY template
+        # itself raises, defeating the guard. Resolving one level at a time with
+        # `default` keeps it safe for any malformed payload.
+        availability: >-
+          {%- set tl = value_json.timelines | default({}, true) -%}
+          {{ (tl.minutely | default([], true) | count) > 0 }}
         value_template: >-
-          {%- set ml = value_json.timelines.minutely | default([], true) -%}
-          {%- if ml | count == 0 -%}
-            unknown
-          {%- else -%}
-            {{ ml | map(attribute='values.precipitationProbability') | map('float', 0) | max | round(0) | int }}
-          {%- endif -%}
+          {{ value_json.timelines.minutely
+             | map(attribute='values.precipitationProbability') | map('float', 0)
+             | max | round(0) | int }}
+
+      # PREDICTED TOTAL for the next hour, so the forecast can be compared against
+      # the EcoWitt gauge in millimetres rather than only on timing.
+      #
+      # rainIntensity is mm/h sampled once per minute, so each entry contributes
+      # intensity/60 mm and the hour's total is sum(intensity)/60.
+      #
+      # WHY THIS MATTERS HERE: the house sits on a ridge and historically seems to
+      # get less rain than the surrounding area, and BOTH forecast sources are
+      # structurally blind to that. Tomorrow.io is a model/radar blend on a grid
+      # far coarser than a ridge. BOM's radar, at the house's 49 km range on the
+      # 0.5 deg beam, is sampling ~570 m ABOVE ground (428 m beam rise + 141 m
+      # earth curvature, in an ~855 m tall beam) - it measures what is in the
+      # cloud, not what reaches the roof, so sub-beam evaporation and air drying
+      # as it crosses the ridge are invisible.
+      # Expect systematic OVER-prediction at this address. Compare this sensor
+      # against sensor.hp2564ca_pro_v2_1_4_hourly_rain_piezo over several events;
+      # if a consistent bias appears, a local correction factor can be applied.
+      # recorder purge_keep_days is 35, so both sides are retained long enough.
+      - name: "Rain Next Hour Total"
+        unique_id: rain_next_hour_total
+        unit_of_measurement: "mm"
+        device_class: precipitation
+        state_class: measurement
+        icon: "mdi:cup-water"
+        # Two-step default, NOT value_json.timelines.minutely is defined - if the
+        # response has no `timelines` key at all (error page, auth failure), that
+        # chains an attribute onto an Undefined and the AVAILABILITY template
+        # itself raises, defeating the guard. Resolving one level at a time with
+        # `default` keeps it safe for any malformed payload.
+        availability: >-
+          {%- set tl = value_json.timelines | default({}, true) -%}
+          {{ (tl.minutely | default([], true) | count) > 0 }}
+        value_template: >-
+          {{ (value_json.timelines.minutely
+              | map(attribute='values.rainIntensity') | map('float', 0)
+              | sum / 60) | round(2) }}
