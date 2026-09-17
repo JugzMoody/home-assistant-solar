@@ -322,143 +322,92 @@ views:
       # ======================================================================
       - type: grid
         cards:
-          # Windy.com radar embed, replacing the windrose. Wind detail is not
-          # wanted day-to-day, and current speed / direction / gust already
-          # appear in Right Now and in the Wind panel beside this.
+          # ANIMATED rain radar. This replaces a Windy.com iframe that showed only
+          # a live STILL: it would not loop unless play was pressed, and on this
+          # non-touch kitchen display nobody can press it. Without motion you
+          # cannot tell whether a cell is heading toward you or away, which was
+          # the entire point of the panel.
           #
-          # WHY WINDY AND NOT BOM DIRECTLY (all verified 2026-09-16):
-          #  * custom:bom-radar-card is DEAD. It fetches
-          #    api.weather.bom.gov.au/v1/radar/capabilities, which BOM retired in
-          #    Dec 2024 and now returns HTTP 404. Re-confirmed still 404.
-          #  * BOM's NEW radar service DOES work:
-          #      api.bom.gov.au/apikey/v1/mapping/timeseries/wmts/1.0.0/
-          #        atm_surf_air_precip_reflectivity_dbz/default/{time}/
-          #        GoogleMapsCompatible_BoM/{z}/{row}/{col}.png
-          #    but it needs a 'Referer: https://www.bom.gov.au/' header (404
-          #    without it) and returns Access-Control-Allow-Origin set to that
-          #    LITERAL origin, not '*'. A browser-side card therefore cannot read
-          #    it at all - it needs a server-side proxy, WMTS tile maths, tile
-          #    stitching and basemap compositing. See README + probe-bom-wmts.py.
-          #  * Windy embeds with no API key, no container and no CORS problem:
-          #    embed.windy.com sends no X-Frame-Options and no CSP
-          #    frame-ancestors. Its Australian radar is the BOM national
-          #    composite, so the underlying data is still BOM.
+          # custom:weather-radar-card (HACS default store) is by the same author as
+          # the dead bom-radar-card and is its maintained successor. It builds the
+          # loop from RainViewer tiles, which works in the browser because
+          # RainViewer serves Access-Control-Allow-Origin: '*'. BOM's new WMTS
+          # cannot be used this way - it pins CORS to bom.gov.au and needs a
+          # server-side proxy (see README + probe-bom-wmts.py).
           #
-          # ZOOM: 9 spans roughly Caloundra -> Jimboomba and Esk -> Moreton Bay
-          # (~98 x 136 km in this 362x502 panel, ~272 m/px). zoom=8 covers four
-          # times the area and so gives more upstream warning time, at the cost
-          # of local detail - swap back if she wants to see systems earlier.
-          # The kitchen display is NOT a touch screen, so Windy's own zoom and
-          # play controls are inert decoration and the view stays fixed.
+          # Measured 2026-09-17 via probe-rainviewer.py: 13 frames, 120 min
+          # window, 10 min spacing, real echo present over Brisbane.
           #
-          # THE PIN CANNOT BE MOVED (tested 2026-09-17). lat/lon set the map
-          # centre and DO work, but detailLat/detailLon do NOT position the
-          # marker: setting them to Ipswich while centred here left Windy's dot
-          # unmoved on Brisbane CBD. Windy snaps its marker to the nearest
-          # recognised city and ignores arbitrary coordinates. The iframe is
-          # cross-origin, so card-mod cannot reach inside to restyle or hide that
-          # dot either.
-          #   Workaround used here: centre on the EXACT HA home coordinates
-          #   (source of record: /api/config latitude/longitude), so the house is
-          #   the dead centre of the panel. Windy's Brisbane dot then sits ~17 km
-          #   south of centre and reads as a city label rather than as "you".
-          #   If an explicit house marker is ever wanted, a card-mod ::after
-          #   crosshair at 50%/50% lands exactly on the house, because the centre
-          #   and zoom are both fixed.
+          # NO PAID UPGRADE EXISTS for this. RainViewer's public API is free with
+          # no paid tier at all; their subscription buys 2-minute updates and a
+          # 2-hour nowcast in their own APPS only. The card exposes no RainViewer
+          # key (its only key option is carto_api_key, for basemaps) and caps
+          # RainViewer forecast at 0, so a subscription could not be consumed even
+          # if bought. DWD is the only source here with forecast frames (+2 h) and
+          # it is Germany-only, so "rain in X minutes" still needs a third party.
           #
-          # Also avoid marker=true: it adds a value-readout panel ("0 dBZ") and a
-          # leader line that cover the top-right of the map.
-          #
-          # NOTE: the embed opens on the CURRENT frame and does not animate
-          # unless play is pressed, which nobody can do on a non-touch screen.
-          # Treat this as a live still, not a loop.
-          - type: iframe
-            # HEIGHT: in a `sections` view the SECTION GRID row span controls the
-            # height and `aspect_ratio` is IGNORED - measured on the live 1080px
-            # portrait display, aspect_ratio: 105% produced a 248px tall card,
-            # nowhere near 105% of the 364px column width. Use grid_options.rows.
+          # LOCATION: deliberately NO center_latitude / center_longitude, so the
+          # card follows HA's own configured location and marks zone.home. This
+          # removes a real maintenance trap the Windy iframe had - an iframe url is
+          # not templatable, so each time the home coordinates were nudged the map
+          # silently stayed at the old spot and had to be hand-synced.
+          - type: custom:weather-radar-card
+            data_source: RainViewer
+            # 120 min is RainViewer's API maximum and gives the full 13 frames.
+            past_minutes: 120
+            # Matches the zoom the Windy panel settled on (~98 km across this
+            # 362px-wide card). Valid range is 3-10.
             #
-            # Row arithmetic: height = 64*rows - 8  (56px row + 8px gap)
-            #   rows: 4 -> 248px   (the original, left ~300px of dead space)
-            #   rows: 8 -> 504px   <- current, almost exactly double
-            #   rows: 9 -> 568px   (overflows: see below)
-            #
-            # Why 8 and not 9: Storm Watch in the left column of this same row
-            # measures 545px (top 300 -> 845). rows: 8 = 504px tucks inside that,
-            # so the row band and the exact 1920px page fit are UNCHANGED and
-            # nothing scrolls. rows: 9 = 568px would exceed the left column by
-            # ~23px and push the whole page over 1920.
-            #
-            # A taller viewport does NOT distort the map. Windy is a live map,
-            # not a fixed-ratio image, so extra height simply reveals more
-            # north-south geography at the same zoom.
+            # CAVEAT measured 2026-09-17: RainViewer tiles come back at z7 (its
+            # native resolution) regardless of this setting, so at zoom_level 9
+            # the imagery is magnified 4x and echo renders as visibly blocky
+            # squares. zoom_level 8 halves that; 7 is 1:1 sharp and shows 4x the
+            # area. Kept at 9 because that is the framing already chosen, but
+            # 7-8 is the better trade if the blockiness grates - sharper cells
+            # and more upstream warning, at the cost of local detail.
+            zoom_level: 9
+            # Grey = Esri Light Grey Canvas. Chosen because CARTO now stamps an
+            # "API key required" watermark on its free Light/Dark/Voyager tiles;
+            # Grey and GreyDark are the only styles that need no key at all.
+            map_style: Grey
+            # Esri Light Grey Canvas is very sparse - at this size it labelled
+            # only "Brisbane", where the previous Windy panel showed Caboolture,
+            # Ipswich, Caloundra and Gympie. Place names are what let you judge
+            # whether a cell is heading here, so turn on the denser label set
+            # (labels render smaller as a result).
+            extra_labels: true
+            # Non-touch display: lock the view so it can never be left panned or
+            # zoomed off-target, and hide controls nobody can press.
+            static_map: true
+            show_zoom: false
+            show_recenter: false
+            show_playback: false
+            # Auto-play. start_paused: true would recreate the exact Windy problem.
+            start_paused: false
+            # Continuous drift instead of stepping. motion_compensation earns its
+            # keep here specifically because RainViewer frames are 10 MINUTES
+            # apart - without it, cells visibly teleport between frames. It
+            # recovers the motion vector by optical flow on the frame pair itself
+            # (no external wind data) and runs in a Web Worker so it does not
+            # block the animation. smooth_overlap: 0 is the pairing the card's own
+            # docs recommend: it holds the previous frame at full opacity through
+            # the slide, avoiding the brightness dip a symmetric crossfade causes
+            # against a light basemap like Grey.
+            smooth_animation: true
+            smooth_overlap: 0
+            motion_compensation: true
+            # HEIGHT comes from the sections grid, NOT from the card's own
+            # `height` option. In a sections view with a fixed row count the grid
+            # cell owns the height and `height` is ignored - the card documents
+            # this precedence explicitly, and it is the same behaviour that made
+            # aspect_ratio a no-op on the iframe card before it.
+            #   height = 64*rows - 8   (56px row + 8px gap)
+            #   rows: 8 -> 504px
+            # rows: 8 because Storm Watch in the left column of this row measures
+            # 545px, so 504px tucks inside it and the exact 1920px page fit stays
+            # unchanged. rows: 9 would be 568px and push the page ~23px over.
             grid_options:
               rows: 8
-            # HOME MARKER. Windy's own blue dot cannot be moved OR removed
-            # (confirmed 2026-09-17, three ways):
-            #   1. No URL param suppresses it - detailLat, detailLon, location,
-            #      detail and marker were all stripped and it still rendered.
-            #   2. The iframe is cross-origin, so neither JS nor CSS can reach
-            #      inside. iframe.contentDocument is null and contentWindow
-            #      throws SecurityError. Note card-mod's `$` shadow-DOM piercing
-            #      does NOT apply here: an iframe is a separate document, not a
-            #      shadow root.
-            #   3. Windy's own forum states the location dot cannot be removed on
-            #      the radar layer. It is derived from server-side IP geolocation
-            #      (it appears with no permission prompt, at the Brisbane CBD IP
-            #      centroid), so there is no permission to revoke either.
-            #
-            # So we draw our OWN marker instead. This works because the map centre
-            # and zoom are both FIXED, which makes the house's pixel position
-            # deterministic: it is the exact centre of the viewport. Verified by
-            # landmark check - Caloundra at the top edge and Jimboomba at the
-            # bottom bracket latitude -27.31 at the vertical midpoint.
-            #
-            # Red core + white ring + dark outline so it stays legible over grey
-            # land, dark topography and coloured radar echo alike. A RING shape
-            # is deliberate: it reads as a UI marker rather than as precipitation,
-            # which matters because Windy's dBZ palette runs to red/magenta at the
-            # top end and a plain red blob could be mistaken for a heavy cell.
-            card_mod:
-              style: |
-                ha-card {
-                  position: relative !important;
-                  overflow: hidden !important;
-                }
-                /* ::after paints after #root (which holds the iframe), so the
-                   marker sits above the map without needing to touch it. */
-                ha-card::after {
-                  content: "";
-                  position: absolute !important;
-                  top: 50% !important;
-                  left: 50% !important;
-                  width: 10px !important;
-                  height: 10px !important;
-                  margin: -5px 0 0 -5px !important;
-                  border-radius: 50% !important;
-                  background: #ff1744 !important;
-                  border: 2px solid #ffffff !important;
-                  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7) !important;
-                  pointer-events: none !important;
-                  z-index: 2 !important;
-                }
-            # lat/lon = map centre = HA's configured home, currently
-            # -27.3168830, 153.0354670 (Settings > System > General > Edit
-            # location, stored in .storage/core.config - NOT in this repo's
-            # configuration.yaml, which is why there is no latitude:/longitude:
-            # key there to keep in step).
-            #
-            # These MUST be updated by hand if the HA location is ever moved: an
-            # iframe card's url is not templatable, so it cannot read zone.home
-            # or the config latitude. Re-read the live values with:
-            #   .venv\Scripts\python.exe -c "import ha; c=ha._get('/api/config'); print(c['latitude'], c['longitude'])"
-            #
-            # detailLat/detailLon are kept in step only for tidiness; they do not
-            # move any marker (see note above). The red home marker is the
-            # card-mod ::after dot, which tracks the map CENTRE, so keeping these
-            # in sync with HA is what keeps that dot on the house.
-            url: >-
-              https://embed.windy.com/embed2.html?lat=-27.3168830&lon=153.0354670&detailLat=-27.3168830&detailLon=153.0354670&zoom=9&level=surface&overlay=radar&product=radar&menu=&message=&marker=&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1
       # ======================================================================
       # ROW 3a - TEMPERATURE (medium)
       # ======================================================================
