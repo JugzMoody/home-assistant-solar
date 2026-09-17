@@ -318,97 +318,47 @@ views:
                     --ha-card-header-font-size: 24px;
                   }
       # ======================================================================
-      # ROW 2b - RAIN RADAR (tall, pairs with Storm Watch)
+      # ROW 2b - RAIN RADAR (BOM loop; pairs with Storm Watch)
       # ======================================================================
       - type: grid
         cards:
-          # ANIMATED rain radar. This replaces a Windy.com iframe that showed only
-          # a live STILL: it would not loop unless play was pressed, and on this
-          # non-touch kitchen display nobody can press it. Without motion you
-          # cannot tell whether a cell is heading toward you or away, which was
-          # the entire point of the panel.
+          # DIY animated BOM radar loop, served from /config/www/bom-radar.html.
+          # Source + full commentary in this repo at www/bom-radar.html.
           #
-          # custom:weather-radar-card (HACS default store) is by the same author as
-          # the dead bom-radar-card and is its maintained successor. It builds the
-          # loop from RainViewer tiles, which works in the browser because
-          # RainViewer serves Access-Control-Allow-Origin: '*'. BOM's new WMTS
-          # cannot be used this way - it pins CORS to bom.gov.au and needs a
-          # server-side proxy (see README + probe-bom-wmts.py).
+          # WHY NOT THE HACS CARD: custom:weather-radar-card animates RainViewer,
+          # but RainViewer only serves tiles at zoom 7 (~1.4 km/px), so echo is
+          # UPSCALED and renders as blocky squares. Confirmed by network trace -
+          # it requests /256/7/... at every zoom_level, so the card's zoom only
+          # changes magnification, never detail.
+          #   BOM's legacy Brisbane product is 512x512 over a fixed 128 km range
+          #   = 0.5 km/px, so at ~362 px it is DOWNSCALED and stays crisp.
           #
-          # Measured 2026-09-17 via probe-rainviewer.py: 13 frames, 120 min
-          # window, 10 min spacing, real echo present over Brisbane.
+          # WHY THIS CAN BE A PLAIN STATIC FILE WITH NO PROXY: BOM's legacy frames
+          # send no CORS header, but displaying a cross-origin image in an <img>
+          # needs no CORS - only reading its pixels via canvas does. Verified from
+          # the HA origin: all four composite layers plus every frame load fine.
+          # (BOM's NEW WMTS is the opposite - it needs a Referer header AND pins
+          # Access-Control-Allow-Origin to bom.gov.au, so it is server-side only.)
           #
-          # NO PAID UPGRADE EXISTS for this. RainViewer's public API is free with
-          # no paid tier at all; their subscription buys 2-minute updates and a
-          # 2-hour nowcast in their own APPS only. The card exposes no RainViewer
-          # key (its only key option is carto_api_key, for basemaps) and caps
-          # RainViewer forecast at 0, so a subscription could not be consumed even
-          # if bought. DWD is the only source here with forecast frames (+2 h) and
-          # it is Germany-only, so "rain in X minutes" still needs a third party.
+          # TRADE-OFF vs RainViewer, both measured 2026-09-17:
+          #   BOM        9 frames,  5 min apart,  40 min history, 0.5 km/px native
+          #   RainViewer 13 frames, 10 min apart, 120 min history, ~1.4 km/px
+          # So BOM is sharper with finer time steps but a much shorter window.
+          # BOM 404s cleanly beyond ~9 frames, and the page skips missing slots.
           #
-          # LOCATION: deliberately NO center_latitude / center_longitude, so the
-          # card follows HA's own configured location and marks zone.home. This
-          # removes a real maintenance trap the Windy iframe had - an iframe url is
-          # not templatable, so each time the home coordinates were nudged the map
-          # silently stayed at the old spot and had to be hand-synced.
-          - type: custom:weather-radar-card
-            data_source: RainViewer
-            # 120 min is RainViewer's API maximum and gives the full 13 frames.
-            past_minutes: 120
-            # Matches the zoom the Windy panel settled on (~98 km across this
-            # 362px-wide card). Valid range is 3-10.
-            #
-            # RainViewer tiles come back at z7 (its native resolution) regardless
-            # of this setting - confirmed by network trace, which requested
-            # z7/118/73 while the view was at zoom_level 9. So this value sets the
-            # MAGNIFICATION of native pixels, not the detail available:
-            #   zoom_level 9 -> 4x magnification, echo renders as blocky squares
-            #   zoom_level 8 -> 2x magnification   <- current
-            #   zoom_level 7 -> 1:1, pixel-sharp, and 4x the area on screen
-            # 8 is the compromise: noticeably less blocky than 9 while keeping a
-            # local framing, and it widens the upstream view a little as a bonus.
-            zoom_level: 8
-            # Grey = Esri Light Grey Canvas. Chosen because CARTO now stamps an
-            # "API key required" watermark on its free Light/Dark/Voyager tiles;
-            # Grey and GreyDark are the only styles that need no key at all.
-            map_style: Grey
-            # extra_labels deliberately left OFF (default). Its only effect is to
-            # pack in more place names by shrinking them, and this location is
-            # read off coastline instead - Moreton Bay, the bay islands and the
-            # river are unmistakable, so sparse-but-larger labels beat dense-but-
-            # smaller ones here.
-            # Non-touch display: lock the view so it can never be left panned or
-            # zoomed off-target, and hide controls nobody can press.
-            static_map: true
-            show_zoom: false
-            show_recenter: false
-            show_playback: false
-            # Auto-play. start_paused: true would recreate the exact Windy problem.
-            start_paused: false
-            # Continuous drift instead of stepping. motion_compensation earns its
-            # keep here specifically because RainViewer frames are 10 MINUTES
-            # apart - without it, cells visibly teleport between frames. It
-            # recovers the motion vector by optical flow on the frame pair itself
-            # (no external wind data) and runs in a Web Worker so it does not
-            # block the animation. smooth_overlap: 0 is the pairing the card's own
-            # docs recommend: it holds the previous frame at full opacity through
-            # the slide, avoiding the brightness dip a symmetric crossfade causes
-            # against a light basemap like Grey.
-            smooth_animation: true
-            smooth_overlap: 0
-            motion_compensation: true
-            # HEIGHT comes from the sections grid, NOT from the card's own
-            # `height` option. In a sections view with a fixed row count the grid
-            # cell owns the height and `height` is ignored - the card documents
-            # this precedence explicitly, and it is the same behaviour that made
-            # aspect_ratio a no-op on the iframe card before it.
-            #   height = 64*rows - 8   (56px row + 8px gap)
-            #   rows: 8 -> 504px
-            # rows: 8 because Storm Watch in the left column of this row measures
-            # 545px, so 504px tucks inside it and the exact 1920px page fit stays
-            # unchanged. rows: 9 would be 568px and push the page ~23px over.
+          # TO SWITCH BACK to the RainViewer card, restore the block from git:
+          #   git show 180a934:dashboards/weather_dashboard.yaml
+          # (that commit has the fully-commented custom:weather-radar-card config)
+          #
+          # Bump ?v= to bust the browser cache after editing the html.
+          - type: iframe
+            url: /local/bom-radar.html?v=1
+            # Square composite in a 362px-wide cell wants a near-square cell.
+            # height = 64*rows - 8, so rows: 6 -> 376px against a 362px width.
+            # Still well inside Storm Watch's 545px in the left column, so the
+            # row band and the exact 1920px page fit are unchanged.
             grid_options:
-              rows: 8
+              rows: 6
       # ======================================================================
       # ROW 3a - TEMPERATURE (medium)
       # ======================================================================

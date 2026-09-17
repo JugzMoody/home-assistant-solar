@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BOM Radar Loop</title>
+<!--
+  DIY animated BOM radar loop, for the Home Assistant weather dashboard.
+
+  WHY THIS EXISTS
+  The HACS weather-radar-card animates RainViewer, but RainViewer only serves
+  tiles at zoom 7 (~1.4 km/px) so echo is upscaled and blocky. BOM's own legacy
+  Brisbane product is 512x512 over a fixed range (0.5 km/px at 128 km), so
+  displayed at ~364 px it is DOWNSCALED and stays crisp.
+
+  WHY IT CAN BE PURELY CLIENT-SIDE
+  BOM's legacy frames send no CORS header, but that does not matter: DISPLAYING a
+  cross-origin image in an <img> needs no CORS (only reading its pixels via
+  canvas does). Verified from the HA origin - all five layers plus frames load.
+  This is also why there is no proxy, no container and no Python here.
+  (BOM's NEW WMTS service is the opposite: it needs a Referer header and pins
+  Access-Control-Allow-Origin to bom.gov.au, so it cannot be used browser-side.)
+
+  DEPLOY
+  Copy to <config>/www/bom-radar.html, then reference as /local/bom-radar.html
+  from an iframe card. No HA restart needed - it is a static file - but do a
+  hard refresh, and bump ?v= on the iframe url to bust the browser cache.
+
+  TUNING - all via query string, no need to edit this file:
+    ?prod=IDR663   radar product. Last digit sets range:
+                     IDR664 =  64 km (most detail, home sits near the top edge)
+                     IDR663 = 128 km (default, balanced)
+                     IDR662 = 256 km (most warning, least detail)
+    ?frames=12     how many 5-min slots to probe back from now
+    ?delay=450     ms each frame is held
+    ?fade=300      ms crossfade duration
+    ?pause=1200    extra ms to hold the last frame before looping
+    ?marker=1      show the home marker (0 to hide)
+    ?range=1       show BOM's range rings (0 to hide)
+-->
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #e8e8e8;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  #stage {
+    position: relative; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  /* The BOM composite is square. Fit it to whichever axis is tighter so the
+     FULL range is always visible - cropping would throw away western coverage,
+     which is exactly where most SE QLD weather arrives from. */
+  #sq { position: relative; aspect-ratio: 1 / 1; width: 100%; max-width: 100%; max-height: 100%; }
+  #sq img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  /* Static basemap layers */
+  .bg    { z-index: 1; }
+  .topo  { z-index: 2; }
+  /* Radar frames get z-index 10+i so each fades in ABOVE its predecessor */
+  .frame { opacity: 0; }
+  .rings { z-index: 100; }
+  .locs  { z-index: 101; }
+  #home {
+    position: absolute; z-index: 102;
+    width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
+    border-radius: 50%;
+    background: #ff1744; border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .7);
+    pointer-events: none;
+  }
+  /* TOP-right, not bottom-left: BOM burns its own caption along the bottom edge
+     of every frame ("Mount Stapylton <date> <time>UTC 0.5 128km"), and a badge
+     down there lands right on top of it. The top strip only carries BOM's
+     copyright line, which is narrower. Ours is still worth showing because
+     BOM's is UTC, whereas this is local time plus the frame's age. */
+  #stamp {
+    position: absolute; z-index: 103; right: 5px; top: 18px;
+    font-size: 13px; font-weight: 600; color: #fff;
+    background: rgba(0, 0, 0, .58); padding: 2px 7px; border-radius: 3px;
+    letter-spacing: .2px;
+  }
+  #msg {
+    position: absolute; z-index: 104; left: 50%; top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px; color: #fff; text-align: center; line-height: 1.4;
+    background: rgba(180, 30, 30, .9); padding: 8px 12px; border-radius: 4px;
+    display: none; max-width: 80%;
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="sq">
+    <div id="msg"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var Q = new URLSearchParams(location.search);
+  var PROD    = (Q.get('prod') || 'IDR663').replace(/[^A-Za-z0-9]/g, '');
+  var NFRAMES = clampInt(Q.get('frames'), 12, 1, 40);
+  var DELAY   = clampInt(Q.get('delay'), 450, 80, 5000);
+  var FADE    = clampInt(Q.get('fade'), 300, 0, 3000);
+  var PAUSE   = clampInt(Q.get('pause'), 1200, 0, 10000);
+  var SHOWMK  = Q.get('marker') !== '0';
+  var SHOWRG  = Q.get('range') !== '0';
+
+  var BASE = 'https://www.bom.gov.au';
+  var TRANS = BASE + '/products/radar_transparencies/' + PROD;
+  // Mt Stapylton radar, per BOM's QLD radar info page: lat 27.718 S, long 153.240 E
+  var RADAR = { lat: -27.718, lon: 153.240 };
+  // HA configured home. Update if the HA location moves (Settings > System > General).
+  var HOME  = { lat: -27.3168830, lon: 153.0354670 };
+
+  // Range in km from the product's trailing digit: 4=64, 3=128, 2=256, 1=512
+  var RANGE = ({ '4': 64, '3': 128, '2': 256, '1': 512 })[PROD.slice(-1)] || 128;
+
+  var sq = document.getElementById('sq');
+  var msgEl = document.getElementById('msg');
+  var stampEl = null;
+  var frames = [];      // { stamp, img }
+  var idx = 0;
+  var timer = null;
+  var newestKnown = null;
+
+  function clampInt(v, dflt, lo, hi) {
+    var n = parseInt(v, 10);
+    if (isNaN(n)) return dflt;
+    return Math.max(lo, Math.min(hi, n));
+  }
+
+  function msg(t) {
+    if (!t) { msgEl.style.display = 'none'; return; }
+    msgEl.textContent = t;
+    msgEl.style.display = 'block';
+  }
+
+  /* --- frame timing -----------------------------------------------------
+     BOM publishes every 5 minutes at minutes ending 4 or 9, i.e. epoch
+     seconds where (t mod 300) == 240. An earlier probe on a 6-minute grid
+     found only 2 frames and looked like a 30-min cadence - that was
+     ALIASING, not reality. Verified 9 consecutive 5-min frames.            */
+  function snap(epochSec) {
+    return Math.floor((epochSec - 240) / 300) * 300 + 240;
+  }
+
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function stampOf(epochSec) {
+    var d = new Date(epochSec * 1000);
+    return d.getUTCFullYear() + pad(d.getUTCMonth() + 1) + pad(d.getUTCDate()) +
+           pad(d.getUTCHours()) + pad(d.getUTCMinutes());
+  }
+
+  // BOM stamps are UTC. Brisbane is UTC+10 year round (no DST).
+  function labelOf(s) {
+    var y = +s.slice(0, 4), mo = +s.slice(4, 6) - 1, da = +s.slice(6, 8);
+    var h = +s.slice(8, 10), mi = +s.slice(10, 12);
+    var d = new Date(Date.UTC(y, mo, da, h, mi));
+    var b = new Date(d.getTime() + 10 * 3600 * 1000);
+    var hh = b.getUTCHours(), ap = hh < 12 ? 'AM' : 'PM';
+    var h12 = hh % 12; if (h12 === 0) h12 = 12;
+    var age = Math.round((Date.now() - d.getTime()) / 60000);
+    return h12 + ':' + pad(b.getUTCMinutes()) + ' ' + ap +
+           (age > 0 ? '  (' + age + 'm ago)' : '');
+  }
+
+  function frameUrl(s) { return BASE + '/radar/' + PROD + '.T.' + s + '.png'; }
+
+  /* Try to load one image; resolve with the element or null on 404.
+     img.onerror is how we detect a missing slot - BOM 404s cleanly and only
+     retains ~9 frames (~40 min), so misses are normal and must be skipped. */
+  function tryLoad(url) {
+    return new Promise(function (res) {
+      var im = new Image();
+      var done = false;
+      var t = setTimeout(function () { if (!done) { done = true; res(null); } }, 15000);
+      im.onload = function () { if (!done) { done = true; clearTimeout(t); res(im); } };
+      im.onerror = function () { if (!done) { done = true; clearTimeout(t); res(null); } };
+      im.src = url;
+    });
+  }
+
+  function addStatic(cls, url, z) {
+    return tryLoad(url).then(function (im) {
+      if (!im) return null;
+      im.className = cls;
+      if (z) im.style.zIndex = z;
+      sq.appendChild(im);
+      return im;
+    });
+  }
+
+  function placeMarker() {
+    if (!SHOWMK) return;
+    // Azimuthal about the radar: 512 px spans 2 * RANGE km, so px/km = 512/(2R).
+    // Expressed as a percentage so it survives any display scaling.
+    var pxPerKm = 512 / (2 * RANGE);
+    var midLat = (RADAR.lat + HOME.lat) / 2;
+    var kmN = (HOME.lat - RADAR.lat) * 111.32;
+    var kmE = (HOME.lon - RADAR.lon) * 111.32 * Math.cos(midLat * Math.PI / 180);
+    var x = 256 + kmE * pxPerKm;
+    var y = 256 - kmN * pxPerKm;
+    if (x < 0 || x > 512 || y < 0 || y > 512) return;   // outside this product
+    var d = document.createElement('div');
+    d.id = 'home';
+    d.style.left = (x / 512 * 100) + '%';
+    d.style.top  = (y / 512 * 100) + '%';
+    d.title = 'Home';
+    sq.appendChild(d);
+  }
+
+  function makeStamp() {
+    stampEl = document.createElement('div');
+    stampEl.id = 'stamp';
+    sq.appendChild(stampEl);
+  }
+
+  /* --- discovery -------------------------------------------------------- */
+  function discover() {
+    var newest = snap(Date.now() / 1000 - 150);   // allow publish lag
+    var slots = [];
+    for (var i = 0; i < NFRAMES; i++) slots.push(newest - i * 300);
+    return Promise.all(slots.map(function (e) {
+      var s = stampOf(e);
+      return tryLoad(frameUrl(s)).then(function (im) {
+        return im ? { stamp: s, img: im } : null;
+      });
+    })).then(function (list) {
+      // oldest -> newest, misses dropped
+      return list.filter(Boolean).reverse();
+    });
+  }
+
+  function mount(list) {
+    frames.forEach(function (f) { if (f.img.parentNode) f.img.remove(); });
+    frames = list;
+    frames.forEach(function (f, i) {
+      f.img.className = 'frame';
+      f.img.style.zIndex = 10 + i;
+      f.img.style.transition = 'opacity ' + FADE + 'ms linear';
+      f.img.style.opacity = '0';
+      sq.insertBefore(f.img, document.getElementById('home') || stampEl || null);
+    });
+    newestKnown = frames.length ? frames[frames.length - 1].stamp : null;
+  }
+
+  /* --- playback ---------------------------------------------------------
+     Sequential crossfade, NOT symmetric. The incoming frame sits at a higher
+     z-index and fades in over the outgoing one, which is held at full opacity
+     until the fade completes. A symmetric crossfade would leave both partly
+     transparent mid-transition and dip the brightness against the pale
+     basemap. Only once the new frame is fully opaque are the others zeroed.
+
+     The loop wrap is a HARD CUT: frame 0 has the LOWEST z-index, so fading it
+     in would be invisible underneath. A snap also reads better - a fade across
+     the wrap looks like time running backwards.                            */
+  function show(i, hard) {
+    frames.forEach(function (f, j) {
+      f.img.style.transition = hard ? 'none' : 'opacity ' + FADE + 'ms linear';
+      if (j === i) f.img.style.opacity = '1';
+    });
+    if (hard) {
+      frames.forEach(function (f, j) { if (j !== i) f.img.style.opacity = '0'; });
+      // restore transitions next tick
+      setTimeout(function () {
+        frames.forEach(function (f) { f.img.style.transition = 'opacity ' + FADE + 'ms linear'; });
+      }, 30);
+    } else {
+      setTimeout(function () {
+        frames.forEach(function (f, j) { if (j !== i) f.img.style.opacity = '0'; });
+      }, FADE);
+    }
+    if (stampEl) stampEl.textContent = labelOf(frames[i].stamp);
+  }
+
+  function step() {
+    if (!frames.length) return;
+    var last = idx === frames.length - 1;
+    var next = last ? 0 : idx + 1;
+    show(next, last);          // hard cut only on the wrap
+    idx = next;
+    timer = setTimeout(step, DELAY + (idx === frames.length - 1 ? PAUSE : 0));
+  }
+
+  function start() {
+    clearTimeout(timer);
+    if (!frames.length) { msg('No BOM radar frames available'); return; }
+    msg('');
+    idx = 0;
+    show(0, true);
+    timer = setTimeout(step, DELAY);
+  }
+
+  /* --- refresh ----------------------------------------------------------
+     BOM keeps ~40 min of frames, so re-discover periodically. Only rebuild if
+     the newest slot actually changed, to avoid restarting the loop needlessly. */
+  function refresh() {
+    var newest = stampOf(snap(Date.now() / 1000 - 150));
+    if (newest === newestKnown) return;
+    discover().then(function (list) {
+      if (!list.length) { msg('No BOM radar frames available'); return; }
+      mount(list);
+      start();
+    });
+  }
+
+  /* --- boot ------------------------------------------------------------- */
+  Promise.all([
+    addStatic('bg', TRANS + '.background.png', 1),
+    addStatic('topo', TRANS + '.topography.png', 2)
+  ]).then(function () {
+    var after = [];
+    if (SHOWRG) after.push(addStatic('rings', TRANS + '.range.png', 100));
+    after.push(addStatic('locs', TRANS + '.locations.png', 101));
+    return Promise.all(after);
+  }).then(function () {
+    placeMarker();
+    makeStamp();
+    return discover();
+  }).then(function (list) {
+    mount(list);
+    start();
+    setInterval(refresh, 60000);
+  }).catch(function (e) {
+    msg('Radar failed to load: ' + (e && e.message ? e.message : e));
+  });
+
+  // Pause when the tab/panel is hidden; resume on return.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { clearTimeout(timer); }
+    else if (frames.length) { start(); refresh(); }
+  });
+})();
+</script>
+</body>
+</html>
