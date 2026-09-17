@@ -24,6 +24,12 @@ dashboards/
   SolarCurtailmentDashboard.yaml   Live curtailment status, gauges, diagnostics.
   SolcastDashboard.yaml            Forecast vs actual, tracking %, per-inverter health.
   LoggingDashboard.yaml            Activity log (HACS multiple-logbook-card).
+  weather_dashboard.yaml           Kitchen weather display (EcoWitt station, portrait
+                                   1080x1920, fits exactly with no scrolling).
+www/
+  bom-radar.html                   Animated BOM rain radar loop. Deploy to
+                                   <config>/www/ and reference as
+                                   /local/bom-radar.html from an iframe card.
 ```
 
 ## Key concepts
@@ -459,12 +465,59 @@ https://embed.windy.com/embed2.html?lat=-27.33&lon=153.07&...&overlay=radar&prod
 - Trade-offs: Windy branding, a national composite rather than the local Brisbane
   product, and a fairly heavy interactive map on an always-on display.
 
+### Option F - DIY BOM loop (IMPLEMENTED — this is what runs now)
+`www/bom-radar.html`, served as `/local/bom-radar.html` in an `iframe` card.
+
+A single static HTML file. **No proxy, no container, no Python.** That works
+because *displaying* a cross-origin image in an `<img>` needs no CORS — only
+reading its pixels via canvas does. Verified from the HA origin that all four
+composite layers and every frame load.
+
+| | BOM loop | RainViewer card |
+|---|---|---|
+| frames | 9–10 | 13 |
+| interval | **5 min** | 10 min |
+| history | 40 min | **120 min** |
+| resolution | **0.5 km/px native, downscaled to 362 px** | ~1.4 km/px, *upscaled* |
+| basemap | BOM terrain + coast + dense labels + range rings | Esri grey, sparse |
+
+BOM wins on sharpness and time resolution; RainViewer wins on history length.
+The upscaling is why RainViewer echo reads as blocky squares — confirmed by
+network trace: the card requests `/256/7/...` at *every* `zoom_level`, so its zoom
+only changes magnification, never detail.
+
+Implementation notes worth keeping:
+- **Cadence** is 5 min at minutes ending 4 or 9, i.e. `(epoch mod 300) == 240`.
+- BOM retains only ~9 frames then **404s cleanly**, so frame discovery is
+  "try to load, skip failures" and missing slots are normal.
+- **Sequential crossfade, not symmetric.** The incoming frame sits at a higher
+  `z-index` and fades in *over* the outgoing one, which is held at full opacity
+  until the fade completes. A symmetric crossfade leaves both partly transparent
+  mid-transition and dips brightness against BOM's pale basemap.
+- The **loop wrap is a hard cut** — frame 0 has the lowest `z-index` so fading it
+  in would be invisible, and a snap reads better than time running backwards.
+- **Home marker** is computed from BOM's published radar position (Mt Stapylton,
+  27.718 °S 153.240 °E) and the HA home coords: 49.0 km NNW, landing at
+  42.11 %, 32.56 % of the 128 km image. Stored as percentages so it survives
+  scaling, and recomputed if the product/range changes.
+- Timestamp badge sits **top-right** because BOM burns its own caption along the
+  bottom edge of every frame. Ours shows local time + frame age; BOM's is UTC.
+- Tunable by query string, no file edit needed:
+  `?prod=IDR664|IDR663|IDR662` (64 / 128 / 256 km), `frames`, `delay`, `fade`,
+  `pause`, `marker`, `range`.
+- HA sets **`Referrer-Policy: no-referrer`** on `/local/` files. This is another
+  reason BOM's new WMTS cannot be used from a `/local/` page even ignoring CORS —
+  it *requires* a `Referer: https://www.bom.gov.au/` header and HA strips it.
+- No CSP header on `/local/` assets, so the cross-origin BOM images are not
+  blocked inside the iframe.
+
 ### Recommendation
-**Windy iframe for the picture** (done — cheapest path to a live, self-refreshing
-radar) and **Tomorrow.io for the "rain in X minutes" number** if that is still
-wanted. BOM's new WMTS is the higher-quality picture and is worth revisiting if
-the Windy composite proves too coarse, but it needs a server-side proxy and tile
-compositing. **WillyWeather is the wrong product for this** — it has no radar.
+**Implemented: the DIY BOM loop** (Option F) — sharpest imagery, 5-minute steps,
+BOM's own basemap, and no external dependency beyond bom.gov.au itself.
+Still outstanding: **"rain in X minutes"** needs a nowcast, which no free source
+here provides (BOM's finest future product is 3-hourly probability; RainViewer's
+free API returns 0 nowcast frames). **Tomorrow.io** remains the option for that.
+**WillyWeather is the wrong product** — it serves no radar imagery at all.
 
 ## Dependencies
 - Custom integration: **PowerSync** (Tesla/Amber/Solcast orchestration)
