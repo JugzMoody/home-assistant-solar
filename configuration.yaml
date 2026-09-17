@@ -996,3 +996,106 @@ sensor:
 # No utility_meter needed any more:
 #   Sungrow uses its native self-resetting daily register.
 #   Fronius uses the midnight-baseline template sensors below.
+
+
+# ==========================================
+# RAIN NOWCAST (Tomorrow.io) - "rain in X minutes"
+# ==========================================
+# Fills the gap under the radar on the weather dashboard with the one thing the
+# radar itself cannot tell you: WHEN rain will arrive here.
+#
+# WHY TOMORROW.IO AND NOT SOMETHING LOCAL (all verified 2026-09-17):
+#  * BOM publishes NO public minute-level nowcast. Its WMTS has 41 layers and the
+#    finest FUTURE precipitation is 3-hourly probability. Probed 8 candidate
+#    service names (forecast/nowcast/prediction/...) - all 404. Captured what
+#    BOM's own viewer requests: past frames only.
+#  * BOM's app DOES send "rain in the next 30 min" notifications, but that is
+#    push-only. Probed 10 candidate endpoints on its backend - all 404. And the
+#    backend's own responses state the API "must not be used, copied or shared",
+#    so it is deliberately not used here.
+#  * OpenWeatherMap's minutely nowcast is unreachable: HA supports One Call 3.0,
+#    new accounts can only subscribe to 4.0, and the two cannot coexist on one
+#    account (3.0 returns 401). See home-assistant/core#174333, still open.
+#  * Met.no publishes a 90-minute nowcast but it is Nordic-only - no Australian
+#    coverage.
+#  * RainViewer's free API returns 0 nowcast frames.
+#
+# VERIFIED FREE-TIER BEHAVIOUR: 60 entries at 1-minute steps, 59-minute horizon.
+# Rate limits are 500/day, 25/hour, 3/second. scan_interval 300 = 12 calls/hour
+# and 288/day, which sits inside both with headroom.
+#
+# FIELD NAME TRAP: the intensity field is `rainIntensity`, NOT
+# `precipitationIntensity`. The latter does not exist in the v4 minutely payload
+# and silently evaluates to None, which reads as "never rains".
+#
+# Validated end-to-end against a point offshore east of Brisbane where the BOM
+# radar was showing echo at the time: 45/60 wet minutes, peak 4.37 mm/hr, onset
+# correctly computed at +15 min. Two independent sources agreeing.
+#
+# THE URL LIVES IN secrets.yaml so the API key never lands in this repo:
+#   tomorrow_io_url: https://api.tomorrow.io/v4/weather/forecast?location=-27.3168830,153.0354670&timesteps=1m&units=metric&apikey=YOUR_KEY
+# A single fetch feeds all three sensors below (HA's rest platform shares one
+# request across its nested sensors), so this costs 1 call per scan_interval.
+rest:
+  - resource: !secret tomorrow_io_url
+    scan_interval: 300
+    timeout: 30
+    sensor:
+      # Minutes until rain starts. `unknown` when the whole hour is dry, which is
+      # deliberate: it makes "no rain" visually distinct from "rain in 0 min"
+      # rather than collapsing both to a number.
+      - name: "Rain Onset Minutes"
+        unique_id: rain_onset_minutes
+        unit_of_measurement: "min"
+        state_class: measurement
+        icon: "mdi:weather-rainy"
+        # JINJA TRAP: must be m['values'], NOT m.values. The payload key is
+        # literally called "values", which collides with Python's dict.values
+        # method - Jinja resolves the attribute before the item, so m.values
+        # returns the bound method and the lookup dies with
+        #   UndefinedError: 'builtin_function_or_method object' has no attribute
+        # Subscript notation sidesteps it. (The two sensors below dodge this by
+        # accident because map(attribute='values.x') resolves items differently.)
+        value_template: >-
+          {%- set ml = value_json.timelines.minutely | default([], true) -%}
+          {%- set ns = namespace(t=none) -%}
+          {%- for m in ml -%}
+            {%- if ns.t is none and (m['values']['rainIntensity'] | float(0)) >= 0.2 -%}
+              {%- set ns.t = m.time -%}
+            {%- endif -%}
+          {%- endfor -%}
+          {%- if ns.t is none -%}
+            unknown
+          {%- else -%}
+            {{ [0, ((as_timestamp(ns.t) - as_timestamp(now())) / 60) | round(0) | int] | max }}
+          {%- endif -%}
+
+      # Heaviest rate anywhere in the next hour - distinguishes drizzle from a
+      # downpour, so the display can say "light" vs "heavy".
+      - name: "Rain Next Hour Peak"
+        unique_id: rain_next_hour_peak
+        unit_of_measurement: "mm/h"
+        state_class: measurement
+        icon: "mdi:weather-pouring"
+        value_template: >-
+          {%- set ml = value_json.timelines.minutely | default([], true) -%}
+          {%- if ml | count == 0 -%}
+            unknown
+          {%- else -%}
+            {{ ml | map(attribute='values.rainIntensity') | map('float', 0) | max | round(2) }}
+          {%- endif -%}
+
+      # Highest probability in the hour. Useful on its own: a 30% chance that
+      # never crosses the intensity threshold still means "might sprinkle".
+      - name: "Rain Next Hour Chance"
+        unique_id: rain_next_hour_chance
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: "mdi:water-percent"
+        value_template: >-
+          {%- set ml = value_json.timelines.minutely | default([], true) -%}
+          {%- if ml | count == 0 -%}
+            unknown
+          {%- else -%}
+            {{ ml | map(attribute='values.precipitationProbability') | map('float', 0) | max | round(0) | int }}
+          {%- endif -%}
