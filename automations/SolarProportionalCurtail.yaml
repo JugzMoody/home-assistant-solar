@@ -55,7 +55,31 @@ actions:
       down_gain: 25    # %/kW step when DECREASING solar
       down_cap: 40     # max % down-step per 20 s tick
       up_gain: 8       # %/kW step when INCREASING solar
-      up_cap: 8        # max % up-step per 20 s tick
+      # up_cap raised 8 -> 25 after measuring 116 min of live operation.
+      #
+      # PROBLEM: with up_gain 8 and up_cap 8, ANY deficit of 1 kW or more
+      # saturated the cap, so the proportional term was effectively dead and the
+      # loop was a flat 8%/tick ramp no matter how far behind it was. Meanwhile
+      # down_cap is 40, so one export blip knocked the limit down 40 points and
+      # took five ticks to climb back. Under broken cloud (solar swung 9503 W to
+      # 1596 W inside a minute) it spent most of its time recovering:
+      #   73% of samples had somewhere for the energy to go - not exporting,
+      #      battery below full - yet the mean commanded limit was 40.6%
+      #   40% of those had the battery actively DRAINING, i.e. pure waste
+      #   63.6% of drain time sat at a limit below 50%, vs only 25% at a maxed
+      #      100% where cloud was the real constraint
+      #
+      # ECONOMICS: the down-ramp was defending the cheap side of a lopsided
+      # trade. Avoided export was worth -0.58 c/kWh; the solar being discarded
+      # displaces import at +2.60 c/kWh (4x, and far worse at normal evening
+      # rates). Total export actually incurred over those 116 min was 0.111 kWh
+      # = 0.06 CENTS, against multiple kWh of unharvested solar.
+      #
+      # 25 restores proportionality: a 1 kW deficit now steps 8%, 2 kW steps 16%,
+      # and only beyond ~3.1 kW does the cap bind. Recovery from a cloud takes
+      # one or two ticks instead of five. Hunting was already mild at 0.3
+      # reversals/min, so there is headroom to be less timid.
+      up_cap: 25       # max % up-step per 20 s tick
   - choose:
       # ---------------- CURTAIL: negative export price ----------------
       - conditions:
