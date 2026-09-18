@@ -76,11 +76,39 @@ actions:
               #   (Fixes the loop getting pinned in the ~70s% by noise around
               #   grid=0 while the battery still had headroom to charge faster.)
               battery_absorbing: "{{ bat < -0.1 and bat > -4.8 and soc < full_soc }}"
+              # Battery actively DISCHARGING while we are curtailing. This is
+              # unambiguously wasteful: the house is being fed from stored energy
+              # while free solar is being thrown away, so more solar is strictly
+              # better and CANNOT cause export - the extra generation displaces
+              # the discharge long before it reaches the grid.
+              #
+              # WITHOUT THIS TERM THE LOOP HAS A STABLE TRAP. Observed live at
+              # soc 81%, negative price, limit pinned at 5%: solar 0.55 kW, load
+              # 1.64 kW, battery discharging 1.22 kW, grid 0.03 kW. The loop only
+              # watched GRID power, and grid sits near zero precisely BECAUSE the
+              # battery is covering the shortfall - so err was -0.05, which fails
+              # `err < -0.05` (not strictly less) and fails `err > 0.05`, landing
+              # in HOLD forever. With target 0.05, ANY grid value between 0 and
+              # +0.10 kW parks the loop, and grid_power_smoothed reads exactly 0.0
+              # when the CT hovers around zero.
+              battery_draining: "{{ bat > 0.1 }}"
               # Asymmetric proportional steps (see tuning knobs above):
               #   down_step: aggressive (high gain/cap) to stop export fast.
               #   up_step:   gentle (low gain/cap); battery/house absorb the rest.
               down_step: "{{ [down_cap, [2, (err | abs) * down_gain] | max] | min }}"
-              up_step: "{{ [up_cap, [1, (err | abs) * up_gain] | max] | min }}"
+              # Size the UP step from the LARGER of the two deficit signals:
+              #   |err|  - how far the grid is from the export target
+              #   bat    - how hard the battery is discharging (when it is)
+              # Without the battery term the step collapses to the 1% minimum in
+              # exactly the case that matters most: while the battery covers the
+              # house the grid sits near target, so |err| is tiny even though the
+              # real deficit is kilowatts. Measured on the live fault that gave
+              # 1%/tick = 31 MINUTES to walk 5% -> 100% while discharging 1.2 kW.
+              # Using bat instead gives 8%/tick, so ~4 minutes.
+              # For bat <= 0 this is identical to the old expression, so charging,
+              # export and import behaviour are untouched.
+              deficit: "{{ [ (err | abs), ([0, bat] | max) ] | max }}"
+              up_step: "{{ [up_cap, [1, deficit * up_gain] | max] | min }}"
               # Decision:
               #   CURTAIL only when EXPORTING (err < -0.05) AND the battery can't
               #     take the surplus — i.e. full, at its ~5 kW charge ceiling, or
@@ -91,9 +119,13 @@ actions:
               #     noise near zero never trims a healthy charge.
               #   HOLD only when the battery can't absorb AND we're at the
               #     no-export edge (prevents hunting once the battery is full).
+              #   Note battery_draining appears in BOTH branches: it blocks the
+              #   DOWN step as well as forcing UP. Trimming solar while the
+              #   battery is discharging can never be correct, so even if CT noise
+              #   momentarily reads as export we must not act on it.
               newlimit: >-
-                {% if err < -0.05 and not battery_absorbing %}{{ [min_limit, (limit - down_step)] | max }}
-                {% elif battery_absorbing or err > 0.05 %}{{ [100, (limit + up_step)] | min }}
+                {% if err < -0.05 and not battery_absorbing and not battery_draining %}{{ [min_limit, (limit - down_step)] | max }}
+                {% elif battery_absorbing or battery_draining or err > 0.05 %}{{ [100, (limit + up_step)] | min }}
                 {% else %}{{ limit }}{% endif %}
           - action: input_number.set_value
             target:
