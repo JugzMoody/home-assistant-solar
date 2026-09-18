@@ -44,6 +44,11 @@ actions:
       # Below it, the loop lets solar ramp so surplus charges the battery rather
       # than being curtailed.
       full_soc: 99
+      # Battery maximum charge rate (kW). Used to work out how much MORE the
+      # battery could absorb, which is the deficit signal while charging - see
+      # charge_headroom below. Matches the ~4.8 kW bound already used in
+      # battery_absorbing (Powerwall 2 charges at ~5 kW).
+      max_charge: 5
       # Asymmetric ramp tuning (only applies while curtailing at negative price).
       #  DOWN = reducing solar because we're exporting past target -> AGGRESSIVE,
       #         so unwanted export is killed fast.
@@ -53,7 +58,30 @@ actions:
       #         nervous hunting. When price returns >= 0 the release branch snaps
       #         straight to 100%, so this gentle up-ramp only affects curtailment.
       down_gain: 25    # %/kW step when DECREASING solar
-      down_cap: 40     # max % down-step per 20 s tick
+      # down_cap lowered 40 -> 25 after measuring hunting at full SOC.
+      #
+      # At 100% SOC with a cycling household load (measured swinging
+      # 1.24 <-> 3.77 kW), each load spike discharged the battery, fired
+      # battery_draining, ramped solar up hard - then the load dropped, the
+      # surplus had nowhere to go with the battery full, and it exported. A
+      # -4.31 kW export gives |err|*down_gain = 109, so the cap bound at the full
+      # 40 points and slammed the limit shut. Over 25 min:
+      #   limit swung 5.0 -> 96.6 (91.6 points), 10 reversals, 13 steps >= 10 pts
+      #   exporting in 24% of samples, worst -4.31 kW, ~0.075 kWh (~0.04 cents)
+      #
+      # The energy at stake is negligible; the problem is a controller taking
+      # 40-point steps and writing Modbus limit registers on every one. 25 still
+      # kills a 1 kW overshoot in a single tick (1 kW * 25 = 25) while needing two
+      # ticks for a full-scale event, which is an acceptable trade at these
+      # prices. down_gain is deliberately left at 25 so the response stays
+      # proportional below the cap.
+      #
+      # NOTE the remaining driver is battery_draining firing on NOISE - battery
+      # telemetry was observed alternating -1.31 / +1.13 / -1.55 within a minute.
+      # The proper fix is sustain on that signal (the same treatment the weather
+      # dashboard traffic light needed), which needs a template binary_sensor with
+      # delay_on rather than a value in this automation.
+      down_cap: 25     # max % down-step per 20 s tick
       up_gain: 8       # %/kW step when INCREASING solar
       # up_cap raised 8 -> 25 after measuring 116 min of live operation.
       #
@@ -131,7 +159,36 @@ actions:
               # Using bat instead gives 8%/tick, so ~4 minutes.
               # For bat <= 0 this is identical to the old expression, so charging,
               # export and import behaviour are untouched.
-              deficit: "{{ [ (err | abs), ([0, bat] | max) ] | max }}"
+              # How much MORE the battery could absorb right now, in kW. bat is
+              # negative while charging, so max_charge + bat is the unused charge
+              # capacity: at bat -2.7 with a 5 kW ceiling that is 2.3 kW.
+              #
+              # WHY THIS IS NEEDED. Raising up_cap alone did not fix the observed
+              # under-drive, because the cap was never the binding constraint in
+              # the dominant case. While the battery CHARGES, grid sits balanced
+              # near the target so |err| is ~0.04, and neither |err| nor the
+              # discharge term says anything - so up_step floored at its 1%
+              # minimum. Measured live: limit crawling +1.0%/tick at 12:39-12:43
+              # with solar 4.8 kW, load 1.7 kW and 2.3 kW of charge headroom going
+              # unused. 52% -> the natural ~70% equilibrium would have taken 18
+              # more ticks, and SOC would have passed full_soc first, stopping the
+              # ramp before it ever arrived.
+              #
+              # SELF-DAMPING, so this should not cause overshoot: as solar rises
+              # the battery charges harder, headroom shrinks, and the step shrinks
+              # with it - reaching 1% exactly as the ceiling is met. It is a
+              # proportional controller on the correct error signal rather than a
+              # fixed nudge.
+              #
+              # Gated on bat < -0.1 so an IDLE battery contributes nothing. An
+              # idle battery lands in the HOLD branch anyway, but leaving the gate
+              # off would have it claim the full 5 kW of phantom headroom.
+              charge_headroom: "{{ ([0, max_charge + bat] | max) if bat < -0.1 else 0 }}"
+              # Deficit = the largest genuine "we could use more solar" signal:
+              #   |err|            grid distance from the export target
+              #   bat (positive)   battery discharging - covering load from store
+              #   charge_headroom  battery charging but with spare capacity
+              deficit: "{{ [ (err | abs), ([0, bat] | max), charge_headroom ] | max }}"
               up_step: "{{ [up_cap, [1, deficit * up_gain] | max] | min }}"
               # Decision:
               #   CURTAIL only when EXPORTING (err < -0.05) AND the battery can't
