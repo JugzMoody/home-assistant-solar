@@ -837,6 +837,25 @@ template:
           minutes: 5
         state: "{{ is_state('binary_sensor.output_suppressed', 'on') }}"
 
+      - name: "Battery Draining Sustained"
+        unique_id: battery_draining_sustained
+        icon: "mdi:battery-minus"
+        # Battery discharge sustained for 40s before firing, exactly the pattern
+        # that fixed the traffic light flicker. Battery telemetry is noisy (seen
+        # alternating -1.31 / +1.13 / -1.55 within a minute) so a momentary
+        # microwave spike or transient CT noise shouldn't command the inverters.
+        # The curtailment loop runs on a 20s tick, so delay_on: 40s requires two
+        # consecutive ticks of discharge before it fires - sustain across ticks
+        # rather than instantaneous. delay_off stays short (10s) so the signal
+        # clears promptly when discharge stops, because the ramp-up it commands
+        # is the RIGHT response and should not linger.
+        delay_on:
+          seconds: 40
+        delay_off:
+          seconds: 10
+        availability: "{{ has_value('sensor.power_sync_battery_power') }}"
+        state: "{{ states('sensor.power_sync_battery_power') | float(0) > 0.1 }}"
+
   # ------------------------------------------------------------------
   # The verdict itself, as a machine-readable slug.
   # ------------------------------------------------------------------

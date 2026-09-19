@@ -128,22 +128,24 @@ actions:
               #   (Fixes the loop getting pinned in the ~70s% by noise around
               #   grid=0 while the battery still had headroom to charge faster.)
               battery_absorbing: "{{ bat < -0.1 and bat > -4.8 and soc < full_soc }}"
-              # Battery actively DISCHARGING while we are curtailing. This is
-              # unambiguously wasteful: the house is being fed from stored energy
-              # while free solar is being thrown away, so more solar is strictly
-              # better and CANNOT cause export - the extra generation displaces
-              # the discharge long before it reaches the grid.
-              #
-              # WITHOUT THIS TERM THE LOOP HAS A STABLE TRAP. Observed live at
-              # soc 81%, negative price, limit pinned at 5%: solar 0.55 kW, load
-              # 1.64 kW, battery discharging 1.22 kW, grid 0.03 kW. The loop only
-              # watched GRID power, and grid sits near zero precisely BECAUSE the
-              # battery is covering the shortfall - so err was -0.05, which fails
-              # `err < -0.05` (not strictly less) and fails `err > 0.05`, landing
-              # in HOLD forever. With target 0.05, ANY grid value between 0 and
-              # +0.10 kW parks the loop, and grid_power_smoothed reads exactly 0.0
-              # when the CT hovers around zero.
-              battery_draining: "{{ bat > 0.1 }}"
+              # Battery actively DISCHARGING while we are curtailing. Now uses the
+              # SUSTAINED signal (binary_sensor.battery_draining_sustained) rather
+              # than the raw instantaneous bat > 0.1 that fired on noise. The
+              # sustained sensor requires discharge to hold for 40s (two consecutive
+              # automation ticks) before firing, exactly the pattern that fixed the
+              # traffic light flicker. Battery telemetry is noisy - seen alternating
+              # -1.31 / +1.13 / -1.55 within a minute - so a momentary microwave
+              # spike or transient CT noise shouldn't command the inverters.
+              battery_draining: "{{ is_state('binary_sensor.battery_draining_sustained', 'on') }}"
+              # Battery IDLE (neither charging nor discharging significantly) while
+              # below full_soc and not exporting. This is a third "room for more
+              # solar" signal: the battery has capacity but isn't using it, likely
+              # because the surplus exactly matches the load and PowerSync is holding
+              # it in standby. Incrementally more solar would charge the battery
+              # rather than export, so ramp up. Gated on err > -0.05 (not exporting)
+              # so genuine export still trims. Without this the loop parks at whatever
+              # limit happens to balance load, even with 40% headroom sitting unused.
+              battery_idle_with_room: "{{ (bat | abs) < 0.1 and soc < full_soc and err > -0.05 }}"
               # Asymmetric proportional steps (see tuning knobs above):
               #   down_step: aggressive (high gain/cap) to stop export fast.
               #   up_step:   gentle (low gain/cap); battery/house absorb the rest.
@@ -185,10 +187,14 @@ actions:
               # off would have it claim the full 5 kW of phantom headroom.
               charge_headroom: "{{ ([0, max_charge + bat] | max) if bat < -0.1 else 0 }}"
               # Deficit = the largest genuine "we could use more solar" signal:
-              #   |err|            grid distance from the export target
-              #   bat (positive)   battery discharging - covering load from store
-              #   charge_headroom  battery charging but with spare capacity
-              deficit: "{{ [ (err | abs), ([0, bat] | max), charge_headroom ] | max }}"
+              #   |err|                       grid distance from the export target
+              #   bat (positive)              battery discharging - covering load
+              #   charge_headroom             battery charging with spare capacity
+              #   0.05 if battery_idle_with_room  tiny nudge when idle with room
+              # The idle term is small (0.05 gives a 1% step) because it has no
+              # magnitude signal - we don't know HOW MUCH the battery could take when
+              # idle, only that there's room. So nudge gently and let it self-correct.
+              deficit: "{{ [ (err | abs), ([0, bat] | max), charge_headroom, (0.05 if battery_idle_with_room else 0) ] | max }}"
               up_step: "{{ [up_cap, [1, deficit * up_gain] | max] | min }}"
               # Decision:
               #   CURTAIL only when EXPORTING (err < -0.05) AND the battery can't
@@ -196,8 +202,9 @@ actions:
               #     not charging at all (idle/held). That is REAL export: battery
               #     full = scenario 1, surplus > battery charge rate = scenario 2.
               #   RAMP UP toward 100% when the battery is absorbing with room, OR
-              #     we're importing — so surplus charges the battery fast and CT
-              #     noise near zero never trims a healthy charge.
+              #     we're importing, OR the battery is draining (sustained), OR
+              #     the battery is idle with room - so surplus charges the battery
+              #     and CT noise near zero never trims a healthy charge.
               #   HOLD only when the battery can't absorb AND we're at the
               #     no-export edge (prevents hunting once the battery is full).
               #   Note battery_draining appears in BOTH branches: it blocks the
@@ -206,7 +213,7 @@ actions:
               #   momentarily reads as export we must not act on it.
               newlimit: >-
                 {% if err < -0.05 and not battery_absorbing and not battery_draining %}{{ [min_limit, (limit - down_step)] | max }}
-                {% elif battery_absorbing or battery_draining or err > 0.05 %}{{ [100, (limit + up_step)] | min }}
+                {% elif battery_absorbing or battery_draining or battery_idle_with_room or err > 0.05 %}{{ [100, (limit + up_step)] | min }}
                 {% else %}{{ limit }}{% endif %}
           - action: input_number.set_value
             target:
