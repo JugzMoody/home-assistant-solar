@@ -899,6 +899,47 @@ template:
             {{ (states('sensor.solcast_pv_forecast_forecast_remaining_today') | float(0) < 3)
                and (states('sensor.power_sync_battery_level') | float(0) < 60) }}
 
+      - name: "Free Power Score"
+        unique_id: free_power_score
+        icon: "mdi:gauge"
+        unit_of_measurement: "kW"
+        state_class: measurement
+        # Linear scale for a needle gauge showing "how much load could you add
+        # right now without importing or draining the battery". Maps naturally
+        # to a red-yellow-green gradient:
+        #   < 0       RED      draining battery, REDUCE load
+        #   0-1       YELLOW   marginal spare, light loads only
+        #   1-3       lt GREEN plenty for washing machine / dryer
+        #   3+        dk GREEN heavy curtailment, run everything
+        #
+        # COMPONENTS (all in kW, signed so they ADD to the score):
+        #   +solar               current generation (free energy available)
+        #   -load                current house consumption (claimed)
+        #   +max(0, -bat)        if CHARGING, that's surplus being stored = room
+        #   -max(0, bat)         if DRAINING, that's energy being pulled = shortage
+        #   +curtail_headroom    if limit < 95%, solar could ramp to serve more load
+        #
+        # curtail_headroom = (100 - limit)/100 * rated_capacity. Rated capacity
+        # is Fronius 5kW + Sungrow 5kW = 10kW, but we use 9kW because they never
+        # both hit nameplate simultaneously due to different roof aspects. At
+        # limit 30%, headroom is 0.7 * 9 = 6.3 kW. At limit 95%+, headroom is 0.
+        #
+        # This gives the INCREMENTAL spare: "I could add X kW more load before
+        # I'd start importing or draining". Negative when already draining (pure
+        # red), zero at balance, and climbs with real spare + curtailment headroom.
+        #
+        # Unlike the spare_power sensors this does NOT smooth, because the needle
+        # should respond quickly — smoothing is for tier boundaries that cause
+        # flicker, not for a continuous gauge.
+        state: >-
+          {%- set solar = states('sensor.total_solar_power') | float(0) / 1000 -%}
+          {%- set load = states('sensor.power_sync_home_load') | float(0) -%}
+          {%- set bat = states('sensor.power_sync_battery_power') | float(0) -%}
+          {%- set limit = states('input_number.solar_curtail_limit') | float(100) -%}
+          {%- set rated = 9.0 -%}
+          {%- set headroom = (([100 - limit, 0] | max) / 100) * rated if limit < 95 else 0 -%}
+          {{ (solar - load + ([-bat, 0] | max) - ([bat, 0] | max) + headroom) | round(1) }}
+
 
 # ==========================================
 # PROPORTIONAL SOLAR CURTAILMENT CONTROLS
