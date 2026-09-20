@@ -904,6 +904,12 @@ template:
         icon: "mdi:gauge"
         unit_of_measurement: "kW"
         state_class: measurement
+        # Explicitly set availability so we know when dependencies aren't ready
+        availability: >-
+          {{ has_value('sensor.total_solar_power')
+             and has_value('sensor.power_sync_home_load')
+             and has_value('sensor.power_sync_battery_power')
+             and has_value('input_number.solar_curtail_limit') }}
         # Linear scale for a needle gauge showing "how much load could you add
         # right now without importing or draining the battery". Maps naturally
         # to a red-yellow-green gradient:
