@@ -519,6 +519,11 @@ template:
   # chart. Defaults each source to 0 when asleep/unreachable so the sum
   # stays available (no flapping).
   # ------------------------------------------------------------------
+  # Total Solar Power - combined generation from both inverters.
+  # Uses Sungrow Solar Only (excludes battery discharge) so this represents
+  # true solar generation, not system output. Battery discharge is tracked
+  # separately via sensor.power_sync_battery_power.
+  # ------------------------------------------------------------------
   - sensor:
       - name: "Total Solar Power"
         unique_id: total_solar_power
@@ -527,7 +532,32 @@ template:
         state_class: measurement
         state: >-
           {{ (states('sensor.fronius_live_ac_power') | float(0))
-             + (states('sensor.sungrow_live_power_output') | float(0)) }}
+             + (states('sensor.sungrow_solar_only') | float(0)) }}
+
+  # ------------------------------------------------------------------
+  # Sungrow Solar Only (excluding battery discharge through hybrid inverter).
+  # The Sungrow is a hybrid inverter that outputs BOTH solar generation AND
+  # battery discharge through the same AC output. Register 5016 shows total
+  # AC output, which is correct but includes battery power during discharge.
+  # This calculated sensor subtracts battery discharge to show true solar.
+  # ------------------------------------------------------------------
+  - sensor:
+      - name: "Sungrow Solar Only"
+        unique_id: sungrow_solar_only
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        availability: >-
+          {{ has_value('sensor.sungrow_live_power_output')
+             and has_value('sensor.power_sync_battery_power') }}
+        state: >-
+          {%- set total_output = states('sensor.sungrow_live_power_output') | float(0) -%}
+          {%- set bat_power = states('sensor.power_sync_battery_power') | float(0) -%}
+          {%- if bat_power < 0 -%}
+            {{ [total_output + bat_power, 0] | max }}
+          {%- else -%}
+            {{ total_output }}
+          {%- endif -%}
 
   # ------------------------------------------------------------------
   # Solar tracking vs Solcast forecast.
@@ -921,9 +951,12 @@ template:
         # COMPONENTS (all in kW, signed so they ADD to the score):
         #   +solar               current generation (free energy available)
         #   -load                current house consumption (claimed)
-        #   +max(0, -bat)        if CHARGING, that's surplus being stored = room
-        #   -max(0, bat)         if DRAINING, that's energy being pulled = shortage
+        #   +max(0, -bat)        if CHARGING (-), surplus being stored = good (add capacity)
+        #   -max(0, bat)         if DISCHARGING (+), draining battery = bad (subtract capacity)
         #   +curtail_headroom    if limit < 95%, solar could ramp to serve more load
+        #
+        # PowerSync battery polarity: + = discharging (BAD), - = charging (GOOD)
+        # When battery discharges, we WANT the needle to go more RED (negative score).
         #
         # curtail_headroom = (100 - limit)/100 * rated_capacity. Rated capacity
         # is Fronius 5kW + Sungrow 5kW = 10kW, but we use 9kW because they never

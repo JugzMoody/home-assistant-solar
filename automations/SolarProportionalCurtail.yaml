@@ -8,6 +8,14 @@ description: >-
   exceeds the battery's charge rate (~5 kW). Restores 100% when price is
   non-negative.
 
+  The "battery is absorbing, so don't trim" fast-path is guarded by near_target:
+  it only suppresses curtailment for small (<0.5 kW) export blips that are CT
+  noise the battery will mop up. Genuine kW-scale export at a negative price is
+  always trimmed even while the battery charges, because the battery has already
+  chosen its charge rate and the spill on top is real (fixed 2026-09-25 — the
+  loop had been ramping solar UP into a 4.45 kW negative-price export because a
+  near-full battery was nominally "absorbing").
+
   REPLACES the binary "Fallback hard-curtail" automation — disable that one so
   the two don't both write the inverter limit registers.
 triggers:
@@ -127,7 +135,19 @@ actions:
               #   absorb — so we must NOT trim solar; ramp toward 100% instead.
               #   (Fixes the loop getting pinned in the ~70s% by noise around
               #   grid=0 while the battery still had headroom to charge faster.)
-              battery_absorbing: "{{ bat < -0.1 and bat > -4.8 and soc < full_soc }}"
+              #
+              # BUG FIX (2026-09-25): this must ALSO require that we are not
+              # already exporting hard. Previously the gate was purely about the
+              # battery's telemetry, so with SOC 98.7% and the battery choosing to
+              # charge at only ~1 kW, battery_absorbing was TRUE even while 4.45 kW
+              # spilled to the grid at a NEGATIVE price. The loop then RAMPED SOLAR
+              # UP instead of trimming the overflow. The battery already takes what
+              # it wants; any export past the target on top of that is real spill
+              # the battery has declined to absorb — trim it. The near_target guard
+              # (|err| within ~0.5 kW) preserves the original intent: suppress
+              # curtailment for CT noise around zero, not for genuine kW-scale export.
+              near_target: "{{ (grid - target) > -0.5 }}"
+              battery_absorbing: "{{ bat < -0.1 and bat > -4.8 and soc < full_soc and near_target }}"
               # Battery actively DISCHARGING while we are curtailing. Now uses the
               # SUSTAINED signal (binary_sensor.battery_draining_sustained) rather
               # than the raw instantaneous bat > 0.1 that fired on noise. The

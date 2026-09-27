@@ -102,7 +102,7 @@ views:
                 color: "#8e24aa"
                 unit: kW
                 transform: "return x / 1000;"
-              - entity: sensor.sungrow_live_power_output
+              - entity: sensor.sungrow_solar_only
                 name: Sungrow (West) actual
                 type: line
                 stroke_width: 2

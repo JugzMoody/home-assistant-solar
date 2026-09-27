@@ -102,88 +102,114 @@ views:
             columns: 2
             square: false
             cards:
-              - type: gauge
-                entity: sensor.hp2564ca_pro_v2_1_4_uv_index
-                name: UV Index
-                min: 0
-                max: 11
-                needle: true
-                # FIXED: removed 'amber: 6' - the HA gauge card only accepts
-                # green / yellow / red severity keys; 'amber' was invalid.
-                severity:
-                  green: 0
-                  yellow: 3
-                  red: 8
               # ================================================================
-              # "CAN I RUN THE WASHING MACHINE?" traffic light.
-              # Replaced the Solar Radiation gauge (not useful day-to-day).
-              #
-              # All logic now lives in sensor.free_power_advice (see the "FREE
-              # POWER ADVISOR" section of configuration.yaml). This card only
-              # maps its slug to a headline, a line of detail and a colour.
-              #
-              # It was originally computed inline here, but a dashboard template
-              # is stateless - it re-renders from current state with no memory -
-              # so it could not do the sustain/hysteresis needed to stop the
-              # light flickering. Replaying 2026-09-16 through the inline version
-              # gave 67 colour changes in one day, 42 under 5 minutes. The
-              # backing sensors now smooth over 5 min and require a tier to hold
-              # for 3 min, which measured 18 changes and zero sub-5-min flashes.
-              #
-              # Expect the light to lag reality by roughly 3-4 minutes. That is
-              # the deliberate cost of not flickering.
+              # BATTERY STATE OF CHARGE NEEDLE GAUGE
+              # Shows current battery level as a fuel-gauge style needle.
+              # Color zones: RED (0-20%), YELLOW (20-40%), GREEN (40-100%)
               # ================================================================
-              - type: markdown
-                content: |-
-                  {% set advice = states('sensor.free_power_advice') %}
-                  {% set spare = state_attr('sensor.free_power_advice', 'spare_kw') | float(0) %}
-                  {% set heads = {'yes_curtailed': 'YES', 'yes': 'YES', 'a_little_saving': 'A LITTLE', 'a_little': 'A LITTLE', 'on_battery': 'On Battery', 'not_now': 'NOT NOW'} %}
-                  {% set details = {'yes_curtailed': 'Loads of spare - panels throttled back', 'yes': (spare | round(1)) ~ ' kW spare right now', 'a_little_saving': 'Saving charge for tonight', 'a_little': (spare | round(1)) ~ ' kW spare - small things only', 'on_battery': '', 'not_now': 'House is using it all'} %}
-                  # {{ heads.get(advice, 'NOT NOW') }}
-                  {{ details.get(advice, 'Waiting for data') }}
-                card_mod:
-                  # Colour is a straight slug -> hex lookup. The thresholds and
-                  # tier logic live ONLY in sensor.free_power_advice, so there is
-                  # nothing to keep in sync here any more (card-mod styles are
-                  # evaluated separately from card content, which is why the old
-                  # version had to duplicate the whole calculation).
-                  style: >-
-                    {% set advice = states('sensor.free_power_advice') %}
-                    {% set colours = {'yes_curtailed': '#2e7d32', 'yes': '#2e7d32', 'a_little_saving': '#f9a825', 'a_little': '#f9a825', 'on_battery': '#c62828', 'not_now': '#c62828'} %}
-                    {% set bg = colours.get(advice, '#c62828') %}
-                    ha-card {
-                      background: {{ bg }} !important;
-                      border: none !important;
-                      text-align: center !important;
-                      color: #ffffff !important;
-                      /* Vertically centre the text: the card is stretched to
-                         match the UV gauge beside it, so without this the
-                         status sits at the top with dead space underneath.
-                         height:100% makes the card fill its grid cell, then
-                         flex centring positions the content in the middle. */
-                      height: 100% !important;
-                      box-sizing: border-box !important;
-                      display: flex !important;
-                      flex-direction: column !important;
-                      justify-content: center !important;
-                      align-items: center !important;
-                    }
-                    ha-card h1 {
-                      /* 32px, not 40px: "A LITTLE" (8 chars) wrapped at 40px in
-                         this narrow half-column card. */
-                      font-size: 32px !important;
-                      font-weight: 800 !important;
-                      line-height: 1.15 !important;
-                      margin: 2px 0 6px 0 !important;
-                      border-bottom: none !important;
-                      color: #ffffff !important;
-                    }
-                    ha-card p {
-                      font-size: 16px !important;
-                      line-height: 1.3 !important;
-                      margin: 0 !important;
-                      color: #ffffff !important;
-                    }
+              - type: custom:canvas-gauge-card
+                entity: sensor.power_sync_battery_level
+                card_height: 200
+                gauge:
+                  type: radial-gauge
+                  title: Battery
+                  width: 220
+                  height: 220
+                  units: '%'
+                  minValue: 0
+                  maxValue: 100
+                  majorTicks: ['0','20','40','60','80','100']
+                  minorTicks: 2
+                  strokeTicks: true
+                  highlights:
+                    - from: 0
+                      to: 20
+                      color: rgba(192,57,43,0.75)
+                    - from: 20
+                      to: 40
+                      color: rgba(243,156,18,0.75)
+                    - from: 40
+                      to: 100
+                      color: rgba(82,196,26,0.75)
+                  colorPlate: '#222'
+                  colorMajorTicks: '#f5f5f5'
+                  colorMinorTicks: '#ddd'
+                  colorTitle: '#fff'
+                  colorUnits: '#ccc'
+                  colorNumbers: '#eee'
+                  colorNeedle: rgba(100,181,246,1)
+                  colorNeedleEnd: rgba(144,202,249,.9)
+                  valueBox: true
+                  valueBoxStroke: 5
+                  valueBoxWidth: 60
+                  animationDuration: 1500
+                  animationRule: linear
+                  fontNumbersSize: 20
+              # ================================================================
+              # "CAN I RUN THE WASHING MACHINE?" FREE POWER NEEDLE GAUGE
+              # Replaced the traffic light with a fuel-gauge style needle that
+              # shows HOW MUCH spare power is available (not just yes/no).
+              #
+              # Uses sensor.free_power_score (configuration.yaml):
+              #   Formula: solar - load + max(0,-bat) - max(0,bat) + curtail_headroom
+              #   Curtail headroom = (100-limit)/100 * 9kW when limit < 95%
+              #
+              # NEEDLE ZONES:
+              #   RED (< 0 kW):       Battery draining, reduce load
+              #   YELLOW (0-1 kW):    Marginal, light loads only (kettle/microwave)
+              #   Light GREEN (1-3):  Washer/dryer OK
+              #   Dark GREEN (3-6):   Big loads fine
+              #   MAX GREEN (6+):     Heavy curtailment, run everything
+              #
+              # The needle responds instantly (no smoothing) so wife can see
+              # real-time impact of turning things on/off. Heavy curtailment
+              # (limit 10-30%) pushes the needle into MAX GREEN even when
+              # measured solar is low, because the loop will ramp to serve load.
+              # ================================================================
+              - type: custom:canvas-gauge-card
+                entity: sensor.free_power_score
+                card_height: 200
+                gauge:
+                  type: radial-gauge
+                  title: Free Power
+                  width: 220
+                  height: 220
+                  units: kW
+                  minValue: -8
+                  maxValue: 10
+                  majorTicks: ['-8','-6','-4','-2','0','2','4','6','8','10']
+                  minorTicks: 2
+                  strokeTicks: true
+                  highlights:
+                    - from: -8
+                      to: 0
+                      color: rgba(192,57,43,0.75)
+                    - from: 0
+                      to: 1
+                      color: rgba(243,156,18,0.75)
+                    - from: 1
+                      to: 3
+                      color: rgba(82,196,26,0.75)
+                    - from: 3
+                      to: 6
+                      color: rgba(56,158,13,0.75)
+                    - from: 6
+                      to: 10
+                      color: rgba(35,120,4,0.75)
+                  colorPlate: '#222'
+                  colorMajorTicks: '#f5f5f5'
+                  colorMinorTicks: '#ddd'
+                  colorTitle: '#fff'
+                  colorUnits: '#ccc'
+                  colorNumbers: '#eee'
+                  colorNeedle: rgba(240,128,128,1)
+                  colorNeedleEnd: rgba(255,160,122,.9)
+                  valueBox: true
+                  valueBoxStroke: 5
+                  valueBoxWidth: 60
+                  animationDuration: 1500
+                  animationRule: linear
+                  fontNumbersSize: 20
 
       # ======================================================================
       # ROW 2a - STORM WATCH: lightning proximity, activity, last event.
@@ -531,16 +557,46 @@ views:
       # ======================================================================
       - type: grid
         cards:
-          - type: history-graph
-            title: Rain Timeline & Total Accumulation
-            hours_to_show: 24
-            entities:
-              # FIXED: was '..._hourly_rain_piexo' (typo) so this series never
-              # rendered - the legend only ever showed the daily total.
-              - entity: sensor.hp2564ca_pro_v2_1_4_hourly_rain_piezo
-                name: Active Showers Timeline
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Rain Timeline & Total Accumulation
+            graph_span: 24h
+            span:
+              start: day
+            now:
+              show: true
+              label: Now
+            apex_config:
+              chart:
+                height: 260
+              stroke:
+                curve: smooth
+            yaxis:
+              - id: rain
+                min: 0
+                decimals: 1
+                apex_config:
+                  title:
+                    text: mm
+            series:
+              # Rain rate (mm/h) - shows intensity when it's actively raining
+              - entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
+                name: Rain Intensity
+                type: column
+                color: "#1e88e5"
+                opacity: 0.6
+                stroke_width: 0
+                group_by:
+                  func: max
+                  duration: 5min
+              # Daily total accumulation - cumulative total for the day
               - entity: sensor.hp2564ca_pro_v2_1_4_daily_rain_piezo
                 name: Day Total Accumulated
+                type: line
+                stroke_width: 3
+                color: "#ff9800"
+                curve: stepline
           # Rainfall context at a glance (garden / tank decisions). Icons hidden
           # - all four were the same cloud glyph, pure vertical padding.
           - type: glance
