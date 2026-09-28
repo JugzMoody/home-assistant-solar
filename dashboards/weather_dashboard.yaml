@@ -94,10 +94,54 @@ views:
                   }
 
       # ======================================================================
-      # ROW 1b - SUN / UV (short, pairs with Right Now)
+      # ROW 1b - CLOCK + SUN / UV (short, pairs with Right Now)
       # ======================================================================
       - type: grid
         cards:
+          # ================================================================
+          # LIVE CLOCK + DATE - freeze detector. The core `clock` card ticks
+          # its own display every second CLIENT-SIDE, independent of any
+          # entity state, so a stalled/frozen page is obvious at a glance: if
+          # the seconds stop advancing, the data on the whole page is stale.
+          # A markdown/template timestamp would NOT work for the clock half -
+          # it only repaints on a state change, so it can look "live" on a
+          # frozen page.
+          #
+          # The clock card only fills ~half this card's width, leaving the
+          # right side empty, so the date sits beside it (2-col grid) rather
+          # than below it - adds the date with ZERO extra height. The date
+          # itself is a static markdown (via sensor.date_time): that's fine
+          # here because it sits directly next to the live-ticking clock,
+          # which is what actually proves the page isn't frozen.
+          # Placed at the top of column 2 so it pushes the gauges down.
+          # ================================================================
+          - type: grid
+            columns: 2
+            square: false
+            cards:
+              - type: clock
+                clock_size: medium
+                show_seconds: true
+                time_format: "12"
+              - type: markdown
+                content: |-
+                  {{ states('sensor.date_time').split(', ')[0] }}
+                card_mod:
+                  style: |
+                    ha-card {
+                      height: 100% !important;
+                      box-sizing: border-box !important;
+                      display: flex !important;
+                      flex-direction: column !important;
+                      justify-content: center !important;
+                      align-items: center !important;
+                      text-align: center !important;
+                    }
+                    ha-markdown {
+                      font-size: 22px !important;
+                      font-weight: 700 !important;
+                      line-height: 1.3 !important;
+                    }
           - type: grid
             columns: 2
             square: false
@@ -213,8 +257,26 @@ views:
 
       # ======================================================================
       # ROW 2a - STORM WATCH: lightning proximity, activity, last event.
+      #
+      # TIGHTENED (2026-09-27): column 1 had visible dead space between these
+      # four stacked cards - each ha-card in a `sections` grid carries its own
+      # margin/padding, which adds up across four separate cards. `column_span`
+      # is left at default (each card full-width) but grid-gap is pulled in
+      # via card_mod on the section wrapper, and the two markdown cards below
+      # (Last strike / Wind) have their card padding trimmed directly so the
+      # stack reads as one denser column instead of four loosely-spaced boxes.
       # ======================================================================
       - type: grid
+        column_span: 1
+        card_mod:
+          # Sections normally use a fixed row-gap between stacked cards
+          # (~8px per card via the grid's own gap plus each card's margin).
+          # Halving it here is what actually closes up the visible gaps
+          # between Lightning / Strikes / Last strike / Wind.
+          style: |
+            .grid.grid-container {
+              gap: 4px !important;
+            }
         cards:
           # Uses sensor.live_lightning_distance (configuration.yaml), NOT the
           # raw station distance: the station HOLDS the last strike distance
@@ -290,6 +352,15 @@ views:
               style: |
                 ha-card {
                   font-size: 20px !important;
+                  /* Default card padding (~16px top/bottom) is excessive for
+                     one short line - this card was the biggest contributor to
+                     the dead space in this column. */
+                  padding-top: 6px !important;
+                  padding-bottom: 6px !important;
+                  margin-bottom: 0 !important;
+                }
+                ha-markdown {
+                  margin: 0 !important;
                 }
           # Moved here from the Wind section: after the barometer was removed,
           # this (left) column was ~260px SHORTER than the windrose beside it,
@@ -342,6 +413,9 @@ views:
                 .: |
                   ha-card {
                     --ha-card-header-font-size: 24px;
+                    padding-top: 6px !important;
+                    padding-bottom: 6px !important;
+                    margin-bottom: 0 !important;
                   }
       # ======================================================================
       # ROW 2b - RAIN RADAR (BOM loop; pairs with Storm Watch)

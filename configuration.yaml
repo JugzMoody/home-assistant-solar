@@ -540,6 +540,20 @@ template:
   # battery discharge through the same AC output. Register 5016 shows total
   # AC output, which is correct but includes battery power during discharge.
   # This calculated sensor subtracts battery discharge to show true solar.
+  #
+  # BUG FIX (2026-09-28): two bugs let discharge spikes leak straight through
+  # onto the Solcast forecast-vs-actual chart (seen as 12-14 kW spikes):
+  #   1. WRONG SIGN: PowerSync's battery_power convention is confirmed
+  #      elsewhere in this file (see free_power_score) as POSITIVE =
+  #      discharging, NEGATIVE = charging. This template had it backwards -
+  #      it only ever subtracted while bat_power < 0 (charging), i.e. never
+  #      during a discharge event, which is exactly when the Sungrow's AC
+  #      output is inflated by battery power riding the same bus.
+  #   2. UNIT MISMATCH: sungrow_live_power_output is in WATTS, but
+  #      power_sync_battery_power is in KILOWATTS. They were added/subtracted
+  #      with no conversion. Negligible at idle (~0.2 kW), but at multi-kW
+  #      discharge this is off by a factor of ~1000, so the "correction" was
+  #      essentially a no-op.
   # ------------------------------------------------------------------
   - sensor:
       - name: "Sungrow Solar Only"
@@ -552,9 +566,9 @@ template:
              and has_value('sensor.power_sync_battery_power') }}
         state: >-
           {%- set total_output = states('sensor.sungrow_live_power_output') | float(0) -%}
-          {%- set bat_power = states('sensor.power_sync_battery_power') | float(0) -%}
-          {%- if bat_power < 0 -%}
-            {{ [total_output + bat_power, 0] | max }}
+          {%- set bat_power_w = (states('sensor.power_sync_battery_power') | float(0)) * 1000 -%}
+          {%- if bat_power_w > 0 -%}
+            {{ [total_output - bat_power_w, 0] | max }}
           {%- else -%}
             {{ total_output }}
           {%- endif -%}
