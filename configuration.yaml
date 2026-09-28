@@ -1073,6 +1073,34 @@ sensor:
     max_age:
       minutes: 5
     sampling_size: 200
+  # Smoothed total solar for the Solcast forecast-vs-actual chart.
+  # WHY: total_solar_power is the SUM of two independently Modbus-polled
+  # inverters (Fronius + Sungrow). Under broken cloud both can momentarily
+  # report a high read in the same sample, producing a physically impossible
+  # combined spike (~9.8 kW seen 2026-09-28 on a ~10 kW nameplate array, with
+  # the energy balance +2.7 kW unaccounted - i.e. not real generation). The
+  # Fronius already has a per-inverter scale-factor/DC-bound guard, but that
+  # only catches individually-absurd reads, not a noisy SUM where each half
+  # looks plausible on its own.
+  #
+  # MEDIAN, not mean: the spikes are brief 1-2 sample transients. A mean is
+  # still dragged upward by a single 9.8 kW outlier in the window; the median
+  # rejects it outright as long as outliers stay the minority of samples,
+  # while tracking genuine ramps (real cloud transitions move many samples
+  # together, so the median follows them). This is used ONLY for the chart's
+  # "Actual" line - the raw total_solar_power is left intact for anything
+  # else that consumes it.
+  #
+  # WINDOW: total_solar_power can update every few seconds; a 60s window at
+  # ~30 slots gives a stable median without lagging real ramps noticeably.
+  - platform: statistics
+    name: "Total Solar Power Smoothed"
+    unique_id: total_solar_power_smoothed
+    entity_id: sensor.total_solar_power
+    state_characteristic: median
+    max_age:
+      seconds: 60
+    sampling_size: 30
   # Per-inverter daily energy:
   #   Sungrow  -> native "Daily power yields" register (sensor.sungrow_daily_energy).
   #   Fronius  -> midnight-baseline delta on the lifetime counter (defined in the

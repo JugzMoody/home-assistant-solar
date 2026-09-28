@@ -81,7 +81,13 @@ views:
                   return (entity.attributes.detailedForecast || []).map(e =>
                     [ new Date(e.period_start).getTime(), e.pv_estimate10 ]);
               # Combined actual production so far today (W -> kW).
-              - entity: sensor.total_solar_power
+              # Uses the MEDIAN-smoothed total (sensor.total_solar_power_smoothed)
+              # rather than the raw sum: the two inverters are polled
+              # independently and under broken cloud can momentarily report a
+              # simultaneous high read, producing an impossible combined spike
+              # (~9.8 kW on a ~10 kW array). The median window rejects those
+              # brief transients while still tracking genuine ramps.
+              - entity: sensor.total_solar_power_smoothed
                 name: Actual (site)
                 type: line
                 stroke_width: 2
