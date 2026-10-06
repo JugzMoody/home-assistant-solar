@@ -787,6 +787,22 @@ template:
             40
           {% endif %}
 
+      # ------------------------------------------------------------------
+      # Lightning Strikes Per Hour - clamped, dashboard-ready value.
+      # Wraps sensor.lightning_strikes_last_hour_raw (statistics `change` over a
+      # 60-min window). `change` on the cumulative counter is normally the real
+      # strike count for the trailing hour, BUT at the daily midnight RESET the
+      # counter drops (e.g. 50 -> 0) and `change` momentarily reads NEGATIVE for
+      # up to an hour. Clamp to 0 so a reset never paints a phantom negative bar.
+      # The dashboard activity graph plots THIS sensor.
+      # ------------------------------------------------------------------
+      - name: "Lightning Strikes Per Hour"
+        unique_id: lightning_strikes_per_hour
+        unit_of_measurement: "strikes"
+        state_class: measurement
+        state: >
+          {{ [states('sensor.lightning_strikes_last_hour_raw') | float(0), 0] | max | round(0) | int }}
+
   # ------------------------------------------------------------------
   # "FREE POWER" ADVISOR - is there spare solar to run an appliance?
   # ------------------------------------------------------------------
@@ -1101,6 +1117,36 @@ sensor:
     max_age:
       seconds: 60
     sampling_size: 30
+  # ------------------------------------------------------------------
+  # LIGHTNING STRIKES PER HOUR (for the weather dashboard activity graph).
+  #
+  # WHY THIS EXISTS: the raw sensor.hp2564ca_pro_v2_1_4_lightning_strikes is a
+  # CUMULATIVE daily counter (state_class total_increasing, resets at midnight).
+  # The dashboard previously tried mini-graph-card's aggregate_func: delta to
+  # turn that into per-hour activity, but strikes are SPARSE - typically one
+  # increment per hour or less - so each hourly group_by bucket held only a
+  # SINGLE data point. delta = last-first within a bucket = 0 for a one-point
+  # bucket, so EVERY bar computed to zero and the graph was permanently flat
+  # even though strikes were really occurring (confirmed 2026-10-06: counter
+  # stepped 0->1->2 across two separate hours, every bucket delta was 0).
+  #
+  # FIX: the statistics `change` characteristic over a rolling 60-minute window
+  # gives (last - first) ACROSS the whole window, i.e. the real number of new
+  # strikes in the trailing hour, independent of how group_by buckets the
+  # points. The dashboard card then plots THIS sensor directly (aggregate_func
+  # max), so each bar is genuine strikes/hour.
+  #
+  # sampling_size 120: the source only updates ON a strike (plus occasional
+  # keep-alives), so an hour rarely has many points; 120 slots is ample and
+  # max_age discards anything older than the hour.
+  - platform: statistics
+    name: "Lightning Strikes Last Hour Raw"
+    unique_id: lightning_strikes_last_hour_raw
+    entity_id: sensor.hp2564ca_pro_v2_1_4_lightning_strikes
+    state_characteristic: change
+    max_age:
+      minutes: 60
+    sampling_size: 120
   # Per-inverter daily energy:
   #   Sungrow  -> native "Daily power yields" register (sensor.sungrow_daily_energy).
   #   Fronius  -> midnight-baseline delta on the lifetime counter (defined in the

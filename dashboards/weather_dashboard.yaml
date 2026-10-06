@@ -289,25 +289,75 @@ views:
             # Override the entity's friendly name ("Live Lightning Distance"),
             # which truncated to "Live Lightni..." in this narrow column.
             name: Lightning
+            # VALUE-DRIVEN COLOUR (2026-10-06, option 2):
+            # The gradient approach (positional severity bands) could not give
+            # distance-accurate colour - the bands are painted by POSITION along
+            # the bar, not by the current value, so red appeared while the storm
+            # was still ~30 km out. Here the WHOLE bar is one colour chosen by
+            # the ACTUAL distance via a template, so the thresholds mean real km:
+            #   >= 25 km  -> yellow  (far)
+            #   10-25 km  -> orange  (approaching)
+            #   < 10 km   -> red     (close / dangerous)
+            #
+            # min: 40, max: 0 (inverted) is kept so a SMALL distance (close
+            # strike) still produces a LONG bar - the fill length encodes
+            # proximity, the single colour encodes the threat band.
+            #
+            # The card's own `color` template is NOT honoured by this version
+            # (verified live: bar rendered grey), so a single full-span severity
+            # band provides the FILL COLOUR and card-mod swaps that one colour
+            # by the ACTUAL distance. Severity needs a value-driven source; the
+            # simplest reliable mechanism this card DOES honour is a positional
+            # band - but to make it a SINGLE solid colour we give one band
+            # spanning the whole 0-40 range, then card-mod recolours it.
             min: 40
             max: 0
             invert_direction: false
             icon: mdi:home-lightning-bolt
             unit: km away
             severity:
-              - from: 25.1
+              - from: 0
                 to: 40
                 color: '#ffeb3b'
-              - from: 10.1
-                to: 25
-                color: '#ff9800'
-              - from: 0
-                to: 10
-                color: '#f44336'
+            # card-mod recolours the fill by REAL distance (km), giving precise
+            # thresholds the positional-gradient severity could never provide:
+            #   >= 25 km -> yellow,  10-25 km -> orange,  < 10 km -> red.
+            #
+            # DOM confirmed via browser inspection (2026-10-06): the fill is
+            # div.bar-paint-layer inside div.bar-fill-reveal inside div.bar-track,
+            # all within this card's shadow root. The paint layer colours the bar
+            # via `background-image: linear-gradient(...)` built from the severity
+            # stops, so we must override background-IMAGE (not background-color)
+            # with a flat single-colour gradient. The $ pierces the card's shadow
+            # root (card-mod syntax). The single 0-40 severity band above gives a
+            # solid base; this recolour sets the actual threat colour by distance.
+            card_mod:
+              style:
+                .: |
+                  {% set d = states('sensor.live_lightning_distance') | float(40) %}
+                  {% if d < 10 %}
+                    {% set c = '#f44336' %}
+                  {% elif d < 25 %}
+                    {% set c = '#ff9800' %}
+                  {% else %}
+                    {% set c = '#ffeb3b' %}
+                  {% endif %}
+                  .bar-paint-layer {
+                    background-image: linear-gradient(to right, {{ c }} 0%, {{ c }} 100%) !important;
+                  }
           - type: custom:mini-graph-card
             title: Lightning Strike Activity (24h)
             entities:
-              - entity: sensor.hp2564ca_pro_v2_1_4_lightning_strikes
+              # Plots sensor.lightning_strikes_per_hour (configuration.yaml):
+              # a statistics `change`-over-60min sensor that already encodes
+              # strikes-in-the-trailing-hour. The OLD approach plotted the raw
+              # cumulative counter with aggregate_func: delta, but strikes are
+              # sparse (one increment per hour), so each hourly group_by bucket
+              # held a single point and delta computed 0 for every bar - the
+              # graph was permanently flat (confirmed 2026-10-06). This sensor
+              # carries the real per-hour count, so `max` per bucket renders a
+              # genuine spike for each active hour.
+              - entity: sensor.lightning_strikes_per_hour
                 name: Strikes / hour
                 color: '#ffeb3b'
             hours_to_show: 24
@@ -315,11 +365,10 @@ views:
             # Scale the big state number up for distance reading (percentage of
             # the card's base font size).
             font_size: 140
-            # The station's strike counter is CUMULATIVE (resets daily), so
-            # aggregate_func: max drew a rising staircase of the running total
-            # rather than activity. `delta` gives strikes-per-hour = real
-            # activity.
-            aggregate_func: delta
+            # max per bucket: the source sensor is already a per-hour rate, so
+            # take the peak value seen in each hour bucket (not delta, which was
+            # the bug - see entity comment above).
+            aggregate_func: max
             group_by: hour
             # SOFT upper bound ('~'): keeps the axis at 10 so an all-zero day
             # renders as a sensible flat line instead of a stack of tiny blips
@@ -328,8 +377,14 @@ views:
             # Must be QUOTED - bare ~10 risks parsing as YAML null.
             lower_bound: 0
             upper_bound: '~10'
+            # BAR style, not line (2026-10-06): the data is sparse and spiky by
+            # nature - a handful of strikes land in one or two hours and every
+            # other hour is zero. A LINE of that is a flat line at zero with one
+            # near-invisible bump (reported: "value shows but no spikes"). Bars
+            # render each hour's strike count as its own column, so even a single
+            # active hour stands out as a clear spike against the zero baseline.
             show:
-              graph: line
+              graph: bar
               fill: false
               icon: true
               legend: false
