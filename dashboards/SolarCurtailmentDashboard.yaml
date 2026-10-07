@@ -148,26 +148,6 @@ views:
                   yellow: 1
                   green: 100
               - type: gauge
-                entity: sensor.fronius_grid_frequency
-                name: Fronius Hz
-                min: 49
-                max: 52
-                needle: true
-                severity:
-                  green: 49
-                  yellow: 50.2
-                  red: 50.5
-              - type: gauge
-                entity: sensor.sungrow_grid_frequency
-                name: Sungrow Hz
-                min: 49
-                max: 52
-                needle: true
-                severity:
-                  green: 49
-                  yellow: 50.2
-                  red: 50.5
-              - type: gauge
                 entity: sensor.fronius_output_percent
                 name: Fronius Output
                 min: 0
