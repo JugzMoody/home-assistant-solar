@@ -519,10 +519,34 @@ template:
   # chart. Defaults each source to 0 when asleep/unreachable so the sum
   # stays available (no flapping).
   # ------------------------------------------------------------------
-  # Total Solar Power - combined generation from both inverters.
-  # Uses Sungrow Solar Only (excludes battery discharge) so this represents
-  # true solar generation, not system output. Battery discharge is tracked
-  # separately via sensor.power_sync_battery_power.
+  # Total Solar Power - combined true solar generation from both arrays.
+  #
+  # DIRECT FROM POWERSYNC (2026-10-06). PowerSync already publishes true solar
+  # as sensor.power_sync_solar_power (kW), computed by the device that actually
+  # orchestrates the battery/grid, with full knowledge of the system. We simply
+  # convert it to W here so all the existing downstream consumers (spare power,
+  # free-power score, the Solcast chart's smoothed line) keep working unchanged.
+  #
+  # WHY NOT the inverter registers: the Sungrow DC register (5016) and its MPPT
+  # V*I registers report TOTAL DC-BUS power, which during a PowerSync forced
+  # discharge-to-grid includes the ~5 kW battery power flowing through the
+  # inverter - so both read ~11 kW on a 5 kW inverter during a dump, producing
+  # the impossible forecast-vs-actual spikes. No Sungrow register gives clean
+  # per-array PV during a dump.
+  #
+  # WHY NOT the energy-balance derivation (load - grid - battery): that was the
+  # previous fix here and it is CORRECT (verified live, it matched this sensor
+  # to ~0.05 kW across a dump), but it re-derives a value PowerSync already
+  # provides, using three sensors and a signed formula that is easy to get wrong
+  # (two sign/charging bugs were hit while developing it). Reading PowerSync's
+  # own figure is simpler and has fewer failure modes.
+  #
+  # VALIDATED LIVE during a battery dump (2026-10-06): power_sync_solar_power
+  # tracked the energy-balance derivation sample-for-sample (~6.5 kW true) while
+  # the Sungrow register sat at ~12-14 kW. Confirms this is the clean source.
+  #
+  # Availability guards on the PowerSync sensor so a dropout blanks the line
+  # rather than reporting 0 as if it were a real zero-solar reading.
   # ------------------------------------------------------------------
   - sensor:
       - name: "Total Solar Power"
@@ -530,30 +554,32 @@ template:
         unit_of_measurement: "W"
         device_class: power
         state_class: measurement
+        availability: >-
+          {{ has_value('sensor.power_sync_solar_power') }}
         state: >-
-          {{ (states('sensor.fronius_live_ac_power') | float(0))
-             + (states('sensor.sungrow_solar_only') | float(0)) }}
+          {{ [ (states('sensor.power_sync_solar_power') | float(0)) * 1000, 0 ] | max | round(0) }}
 
   # ------------------------------------------------------------------
-  # Sungrow Solar Only (excluding battery discharge through hybrid inverter).
-  # The Sungrow is a hybrid inverter that outputs BOTH solar generation AND
-  # battery discharge through the same AC output. Register 5016 shows total
-  # AC output, which is correct but includes battery power during discharge.
-  # This calculated sensor subtracts battery discharge to show true solar.
+  # Sungrow Solar Only - true West-array solar, DERIVED (2026-10-06).
   #
-  # BUG FIX (2026-09-28): two bugs let discharge spikes leak straight through
-  # onto the Solcast forecast-vs-actual chart (seen as 12-14 kW spikes):
-  #   1. WRONG SIGN: PowerSync's battery_power convention is confirmed
-  #      elsewhere in this file (see free_power_score) as POSITIVE =
-  #      discharging, NEGATIVE = charging. This template had it backwards -
-  #      it only ever subtracted while bat_power < 0 (charging), i.e. never
-  #      during a discharge event, which is exactly when the Sungrow's AC
-  #      output is inflated by battery power riding the same bus.
-  #   2. UNIT MISMATCH: sungrow_live_power_output is in WATTS, but
-  #      power_sync_battery_power is in KILOWATTS. They were added/subtracted
-  #      with no conversion. Negligible at idle (~0.2 kW), but at multi-kW
-  #      discharge this is off by a factor of ~1000, so the "correction" was
-  #      essentially a no-op.
+  # Previously this read the Sungrow DC register (5016) and tried to subtract
+  # battery discharge. That register is "Total DC Power" (PV) per the official
+  # Sungrow hybrid Modbus map, NOT AC output as the old comment claimed - and
+  # worse, during a PowerSync discharge-to-grid dump it (and the raw MPPT V*I
+  # registers) report the whole DC-bus power including the battery, reading
+  # ~11 kW on a 5 kW inverter. There is no Sungrow register that gives clean
+  # per-array PV during a dump, so we cannot read it directly.
+  #
+  # Instead, back it out of the energy-balance total: the Fronius AC reading is
+  # clean (it has its own DC-bound scale-factor guard), so
+  #     sungrow_solar = total_solar_power - fronius_ac
+  # where total_solar_power is the balance-derived figure above. This is the
+  # true West-array contribution in all battery states. Clamp at 0 for the brief
+  # case where Fronius momentarily exceeds the balance total due to CT timing.
+  #
+  # NOTE this sensor no longer feeds total_solar_power (that dependency was
+  # reversed - total is now derived from the PowerSync CTs, and sungrow is
+  # derived FROM total), so there is no circular reference.
   # ------------------------------------------------------------------
   - sensor:
       - name: "Sungrow Solar Only"
@@ -562,16 +588,12 @@ template:
         device_class: power
         state_class: measurement
         availability: >-
-          {{ has_value('sensor.sungrow_live_power_output')
-             and has_value('sensor.power_sync_battery_power') }}
+          {{ has_value('sensor.total_solar_power')
+             and has_value('sensor.fronius_live_ac_power') }}
         state: >-
-          {%- set total_output = states('sensor.sungrow_live_power_output') | float(0) -%}
-          {%- set bat_power_w = (states('sensor.power_sync_battery_power') | float(0)) * 1000 -%}
-          {%- if bat_power_w > 0 -%}
-            {{ [total_output - bat_power_w, 0] | max }}
-          {%- else -%}
-            {{ total_output }}
-          {%- endif -%}
+          {%- set total = states('sensor.total_solar_power') | float(0) -%}
+          {%- set fronius = states('sensor.fronius_live_ac_power') | float(0) -%}
+          {{ [ total - fronius, 0 ] | max | round(0) }}
 
   # ------------------------------------------------------------------
   # Solar tracking vs Solcast forecast.
@@ -1090,22 +1112,21 @@ sensor:
       minutes: 5
     sampling_size: 200
   # Smoothed total solar for the Solcast forecast-vs-actual chart.
-  # WHY: total_solar_power is the SUM of two independently Modbus-polled
-  # inverters (Fronius + Sungrow). Under broken cloud both can momentarily
-  # report a high read in the same sample, producing a physically impossible
-  # combined spike (~9.8 kW seen 2026-09-28 on a ~10 kW nameplate array, with
-  # the energy balance +2.7 kW unaccounted - i.e. not real generation). The
-  # Fronius already has a per-inverter scale-factor/DC-bound guard, but that
-  # only catches individually-absurd reads, not a noisy SUM where each half
-  # looks plausible on its own.
+  # WHY: total_solar_power is now ENERGY-BALANCE derived (load - grid - battery)
+  # from the PowerSync CT sensors, which removed the big ~9-11 kW inverter-
+  # register spikes at source. This median is kept as a SECOND line of defence:
+  # the three CT sensors update independently and can momentarily be out of sync
+  # (e.g. battery CT updates a tick before the grid CT during a fast transient),
+  # which can still produce a brief 1-2 sample over/undershoot in the derived
+  # value. The median smooths those residual CT-timing blips on the chart's
+  # "Actual" line without lagging genuine ramps.
   #
-  # MEDIAN, not mean: the spikes are brief 1-2 sample transients. A mean is
-  # still dragged upward by a single 9.8 kW outlier in the window; the median
-  # rejects it outright as long as outliers stay the minority of samples,
-  # while tracking genuine ramps (real cloud transitions move many samples
-  # together, so the median follows them). This is used ONLY for the chart's
-  # "Actual" line - the raw total_solar_power is left intact for anything
-  # else that consumes it.
+  # MEDIAN, not mean: residual blips are brief 1-2 sample transients. A mean is
+  # dragged by a single outlier in the window; the median rejects it outright as
+  # long as outliers stay the minority of samples, while tracking genuine ramps
+  # (real cloud transitions move many samples together, so the median follows
+  # them). Used ONLY for the chart's "Actual" line - the raw total_solar_power
+  # is left intact for anything else that consumes it.
   #
   # WINDOW: total_solar_power can update every few seconds; a 60s window at
   # ~30 slots gives a stable median without lagging real ramps noticeably.
