@@ -1,0 +1,32 @@
+id: "1791350377313"
+alias: Reload template entities on Home Assistant start
+description: >-
+  WHY THIS EXISTS (2026-10-06): several template sensors in configuration.yaml -
+  notably sensor.total_solar_power, sensor.sungrow_solar_only and the
+  pre-existing sensor.fronius_live_ac_power - were repeatedly observed FROZEN
+  after a Home Assistant restart. Their source entities (PowerSync CTs, Fronius
+  Modbus) kept updating, but the template value sat stale indefinitely because
+  the template integration's state-change LISTENERS did not re-attach when the
+  restart landed mid-evaluation. A manual Developer Tools -> template.reload
+  always fixed it instantly by re-attaching the listeners.
+
+  This automation makes that self-healing: on every HA start it waits a short
+  settle period (so the integrations and recorder have finished loading - firing
+  reload too early can race their own startup), then calls template.reload once.
+  The reload is cheap and idempotent, so running it on every start is harmless
+  even when the freeze did not occur.
+
+  Symptom to watch for if this ever regresses: the Solcast "forecast vs actual"
+  chart (or any template-derived power sensor) showing a flat, unchanging value
+  after a reboot while the raw Modbus/PowerSync sources are clearly live.
+triggers:
+  - trigger: homeassistant
+    event: start
+mode: single
+actions:
+  # Let core, integrations and the recorder finish coming up before reloading.
+  # 30s is comfortably past the ~24s the PowerSync CT sensors took to populate
+  # in testing, without being so long the chart looks stale to someone watching.
+  - delay:
+      seconds: 30
+  - action: template.reload
