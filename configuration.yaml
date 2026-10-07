@@ -1112,21 +1112,23 @@ sensor:
       minutes: 5
     sampling_size: 200
   # Smoothed total solar for the Solcast forecast-vs-actual chart.
-  # WHY: total_solar_power is now ENERGY-BALANCE derived (load - grid - battery)
-  # from the PowerSync CT sensors, which removed the big ~9-11 kW inverter-
-  # register spikes at source. This median is kept as a SECOND line of defence:
-  # the three CT sensors update independently and can momentarily be out of sync
-  # (e.g. battery CT updates a tick before the grid CT during a fast transient),
-  # which can still produce a brief 1-2 sample over/undershoot in the derived
-  # value. The median smooths those residual CT-timing blips on the chart's
-  # "Actual" line without lagging genuine ramps.
   #
-  # MEDIAN, not mean: residual blips are brief 1-2 sample transients. A mean is
-  # dragged by a single outlier in the window; the median rejects it outright as
-  # long as outliers stay the minority of samples, while tracking genuine ramps
+  # HISTORY: this smoother was added to tame the big ~9-11 kW spikes that the
+  # old inverter-register-based total_solar_power threw during battery grid
+  # dumps. That root cause is now fixed at the SOURCE - total_solar_power reads
+  # PowerSync's own clean solar figure (sensor.power_sync_solar_power), so those
+  # spikes no longer enter the pipeline. The smoother is therefore no longer
+  # load-bearing; it is kept only as cheap insurance against any minor jitter in
+  # PowerSync's figure. If a few days of clean data confirm the raw value is
+  # stable, this sensor could be removed and the chart pointed straight at
+  # total_solar_power.
+  #
+  # MEDIAN, not mean: an earlier version used a mean, but a mean is DRAGGED by a
+  # single outlier in the window; the median rejects outliers outright as long
+  # as they stay the minority of samples, while still tracking genuine ramps
   # (real cloud transitions move many samples together, so the median follows
   # them). Used ONLY for the chart's "Actual" line - the raw total_solar_power
-  # is left intact for anything else that consumes it.
+  # is left intact for everything else that consumes it.
   #
   # WINDOW: total_solar_power can update every few seconds; a 60s window at
   # ~30 slots gives a stable median without lagging real ramps noticeably.
