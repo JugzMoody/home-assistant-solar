@@ -185,6 +185,33 @@ views:
                 name: Grid Power (smoothed — loop input)
               - entity: sensor.power_sync_battery_level
                 name: Battery SOC
+          # Auto-Apply "floating floor": the optimizer reserve actually being
+          # enforced right now vs what the forecast bridge wants, pulled from
+          # the reserve_recommendation attribute on optimization_status. The
+          # value is a nested dict key, so an entities row can't show it
+          # directly - a small markdown card renders it. Watch 'Applied' climb
+          # above the configured minimum during the 4-9pm window when
+          # Auto-Apply is on.
+          - type: markdown
+            content: |-
+              {% set rr = state_attr('sensor.power_sync_optimization_status', 'reserve_recommendation') %}
+              {% if rr %}
+              ### Optimizer reserve (floating floor)
+              **Applied (enforced now): {{ rr.get('applied_optimizer_reserve_percent', '?') }}%**  &nbsp; • &nbsp; Suggested: {{ rr.get('suggested_optimizer_reserve_percent', '?') }}%
+
+              Configured min: {{ rr.get('configured_optimizer_reserve_percent', '?') }}% &nbsp; • &nbsp; Hardware: {{ rr.get('hardware_reserve_percent', '?') }}% &nbsp; • &nbsp; Raising above min? **{{ 'YES' if rr.get('needs_optimizer_reserve_raise') else 'no' }}**
+              {% set pu = rr.get('protects_until') %}
+              {% if pu %}
+
+              Protects until **{{ as_timestamp(pu) | timestamp_custom('%a %H:%M') }}** ({{ rr.get('next_charge_reason','?') }})
+              {% endif %}
+              {% if rr.get('note') %}
+
+              _{{ rr.get('note') }}_
+              {% endif %}
+              {% else %}
+              Optimizer reserve recommendation unavailable.
+              {% endif %}
           - type: entities
             title: Powerwall Health (local TEDAPI)
             state_color: true
