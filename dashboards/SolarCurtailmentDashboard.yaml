@@ -195,9 +195,12 @@ views:
           - type: markdown
             content: |-
               {% set rr = state_attr('sensor.power_sync_optimization_status', 'reserve_recommendation') %}
-              {% if rr %}
+              {% set opt_status = states('sensor.power_sync_optimization_status') %}
               ### Optimizer reserve (floating floor)
-              **Applied (enforced now): {{ rr.get('applied_optimizer_reserve_percent', '?') }}%**  &nbsp; • &nbsp; Suggested: {{ rr.get('suggested_optimizer_reserve_percent', '?') }}%
+              {% if rr is none %}
+              Attribute unavailable (sensor not reporting).
+              {% elif rr.get('applied_optimizer_reserve_percent') is not none %}
+              **Applied (enforced now): {{ rr.get('applied_optimizer_reserve_percent') }}%**  &nbsp; • &nbsp; Suggested: {{ rr.get('suggested_optimizer_reserve_percent', '?') }}%
 
               Configured min: {{ rr.get('configured_optimizer_reserve_percent', '?') }}% &nbsp; • &nbsp; Hardware: {{ rr.get('hardware_reserve_percent', '?') }}% &nbsp; • &nbsp; Raising above min? **{{ 'YES' if rr.get('needs_optimizer_reserve_raise') else 'no' }}**
               {% set pu = rr.get('protects_until') %}
@@ -210,7 +213,7 @@ views:
               _{{ rr.get('note') }}_
               {% endif %}
               {% else %}
-              Optimizer reserve recommendation unavailable.
+              No active recommendation right now (optimizer **{{ opt_status }}**, no export window to bridge from). The floating floor only computes when an export window has evening load ahead of it — expect values to appear during tomorrow's afternoon window.
               {% endif %}
           - type: entities
             title: Powerwall Health (local TEDAPI)
