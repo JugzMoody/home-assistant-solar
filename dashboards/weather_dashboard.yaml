@@ -1,819 +1,347 @@
 title: Weather Station
-# ============================================================================
-# ECOWITT HP2564 KITCHEN DISPLAY
-# Target: PORTRAIT monitor (~1080x1920), always-on, glanceable from across the
-# room, and NO SCROLLING (verified at exactly 1920px).
-#
-# Layout: type: sections with max_columns: 2.
-#   - 1 column was too tall (3812px vs a 1920px viewport = ~50% visible).
-#   - Sections flow row-by-row across the columns (odd list positions ->
-#     column 1, even positions -> column 2). Order groups the storm/rain
-#     panes in column 2 under the battery/free-power gauges; everything
-#     else stays in column 1:
-#         row 1: Clock/Right Now  + Gauges (Battery + Free Power)
-#         row 2: Temperature      + Storm Watch (lightning + wind)
-#         row 3: Rain Timeline     + Weather Radar
-#         row 4: Forecast          + Rain Nowcast
-#         row 5: Sun & Moon        + Rainfall Totals
-#   - Cards carry their own `title:` instead of `heading:` cards, for
-#     compatibility with older HA versions.
-#
-# READABILITY (needs the card-mod HACS plugin):
-#   Glance cards default to small state text with a lot of padding. Every
-#   glance below uses the same card_mod recipe:
-#     * state value  -> 30px, bold  (the number you read from 3 m away)
-#     * entity name  -> 15px, muted (a label, not the point)
-#     * card header  -> 24px
-#   Icons are hidden (`show_icon: false`) on the pure-data glances because they
-#   were REDUNDANT and costly: e.g. Rainfall Totals showed four identical cloud
-#   icons, consuming a row of height while conveying nothing. Dropping them
-#   buys back the height that the larger type consumes.
-# ============================================================================
 views:
-  - title: Weather Station
-    path: weather_station
-    type: sections
-    max_columns: 2
-    sections:
-      # ==============================================================================
-      # ROW 1a - CLOCK/DATE + RIGHT NOW (column 1)
-      # ==============================================================================
-      - type: grid
-        cards:
-          # ================================================================
-          # LIVE CLOCK + DATE - moved from ROW 1b (top of column 2).
-          # See original comments there for the freeze-detector rationale.
-          # ================================================================
-          - type: grid
-            columns: 2
-            square: false
-            cards:
-              - type: clock
-                clock_size: medium
-                show_seconds: true
-                time_format: "12"
-              - type: markdown
-                content: |-
-                  {{ states('sensor.date_time').split(', ')[0] }}
-                card_mod:
-                  style: |
-                    ha-card {
-                      height: 100% !important;
-                      box-sizing: border-box !important;
-                      display: flex !important;
-                      flex-direction: column !important;
-                      justify-content: center !important;
-                      align-items: center !important;
-                      text-align: center !important;
-                    }
-                    ha-markdown {
-                      font-size: 22px !important;
-                      font-weight: 700 !important;
-                      line-height: 1.3 !important;
-                    }
-          - type: glance
-            title: Right Now
-            show_name: true
-            show_state: true
-            show_icon: false
-            columns: 3
-            entities:
-              - entity: sensor.hp2564ca_pro_v2_1_4_feels_like_temperature
-                name: Feels Like
-              - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
-                name: Actual
-              - entity: sensor.hp2564ca_pro_v2_1_4_humidity
-                name: Humidity
-              - entity: sensor.hp2564ca_pro_v2_1_4_wind_gust
-                name: Gust
-              - entity: binary_sensor.hp2564ca_pro_v2_1_4_rain_state_piezo
-                name: Raining?
-              - entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
-                name: Rain Rate
-            card_mod:
-              # IMPORTANT: in this HA version each glance `div.entity` has its
-              # OWN shadow root containing `div.name` (label) and a bare `div`
-              # (the value). A selector written from the card's root therefore
-              # CANNOT reach them - verified by DOM inspection. The `$` suffix
-              # is card-mod's shadow-root piercing syntax; `.` targets the card.
-              style:
-                .entity$: |
-                  .name {
-                    font-size: 16px !important;
-                    color: var(--secondary-text-color) !important;
-                  }
-                  div:not(.name) {
-                    /* 34px truncated ("19.3...") in a 3-col ~120px cell.
-                       26px fits "19.3 °C" / "0.0 mm/h" without ellipsis. */
-                    font-size: 26px !important;
-                    font-weight: 700 !important;
-                    line-height: 1.25 !important;
-                    white-space: nowrap !important;
-                  }
-                # Rain Rate is the last cell and its value ("0.0 mm/h") is the
-                # widest string on the card - it still clipped at 26px (needed
-                # 113px in a 102px cell). Shrink ONLY that cell rather than
-                # dropping the whole hero card down a size for one outlier.
-                .entity:last-child$: |
-                  div:not(.name) {
-                    font-size: 21px !important;
-                  }
-                .: |
-                  ha-card {
-                    --ha-card-header-font-size: 26px;
-                  }
-
-      # ==============================================================================
-      # ROW 1b - GAUGES: BATTERY + FREE POWER (column 2)
-      # ==============================================================================
-      - type: grid
-        cards:
-          - type: grid
-            columns: 2
-            square: false
-            cards:
-              # ================================================================
-              # BATTERY STATE OF CHARGE NEEDLE GAUGE
-              # Shows current battery level as a fuel-gauge style needle.
-              # Color zones: RED (0-20%), YELLOW (20-40%), GREEN (40-100%)
-              # ================================================================
-              - type: custom:canvas-gauge-card
-                entity: sensor.power_sync_battery_level
-                card_height: 200
-                gauge:
-                  type: radial-gauge
-                  title: Battery
-                  width: 220
-                  height: 220
-                  units: '%'
-                  minValue: 0
-                  maxValue: 100
-                  majorTicks: ['0','20','40','60','80','100']
-                  minorTicks: 2
-                  strokeTicks: true
-                  highlights:
-                    - from: 0
-                      to: 20
-                      color: rgba(192,57,43,0.75)
-                    - from: 20
-                      to: 40
-                      color: rgba(243,156,18,0.75)
-                    - from: 40
-                      to: 100
-                      color: rgba(82,196,26,0.75)
-                  colorPlate: '#222'
-                  colorMajorTicks: '#f5f5f5'
-                  colorMinorTicks: '#ddd'
-                  colorTitle: '#fff'
-                  colorUnits: '#ccc'
-                  colorNumbers: '#eee'
-                  colorNeedle: rgba(100,181,246,1)
-                  colorNeedleEnd: rgba(144,202,249,.9)
-                  valueBox: true
-                  valueBoxStroke: 5
-                  valueBoxWidth: 60
-                  animationDuration: 1500
-                  animationRule: linear
-                  fontNumbersSize: 20
-              # ================================================================
-              # "CAN I RUN THE WASHING MACHINE?" FREE POWER NEEDLE GAUGE
-              # Replaced the traffic light with a fuel-gauge style needle that
-              # shows HOW MUCH spare power is available (not just yes/no).
-              #
-              # Uses sensor.free_power_score (configuration.yaml):
-              #   Formula: solar - load + max(0,-bat) - max(0,bat) + curtail_headroom
-              #   Curtail headroom = (100-limit)/100 * 9kW when limit < 95%
-              #
-              # NEEDLE ZONES:
-              #   RED (< 0 kW):       Battery draining, reduce load
-              #   YELLOW (0-1 kW):    Marginal, light loads only (kettle/microwave)
-              #   Light GREEN (1-3):  Washer/dryer OK
-              #   Dark GREEN (3-6):   Big loads fine
-              #   MAX GREEN (6+):     Heavy curtailment, run everything
-              #
-              # The needle responds instantly (no smoothing) so wife can see
-              # real-time impact of turning things on/off. Heavy curtailment
-              # (limit 10-30%) pushes the needle into MAX GREEN even when
-              # measured solar is low, because the loop will ramp to serve load.
-              # ================================================================
-              - type: custom:canvas-gauge-card
-                entity: sensor.free_power_score
-                card_height: 200
-                gauge:
-                  type: radial-gauge
-                  title: Free Power
-                  width: 220
-                  height: 220
-                  units: kW
-                  minValue: -8
-                  maxValue: 10
-                  majorTicks: ['-8','-6','-4','-2','0','2','4','6','8','10']
-                  minorTicks: 2
-                  strokeTicks: true
-                  highlights:
-                    - from: -8
-                      to: 0
-                      color: rgba(192,57,43,0.75)
-                    - from: 0
-                      to: 1
-                      color: rgba(243,156,18,0.75)
-                    - from: 1
-                      to: 3
-                      color: rgba(82,196,26,0.75)
-                    - from: 3
-                      to: 6
-                      color: rgba(56,158,13,0.75)
-                    - from: 6
-                      to: 10
-                      color: rgba(35,120,4,0.75)
-                  colorPlate: '#222'
-                  colorMajorTicks: '#f5f5f5'
-                  colorMinorTicks: '#ddd'
-                  colorTitle: '#fff'
-                  colorUnits: '#ccc'
-                  colorNumbers: '#eee'
-                  colorNeedle: rgba(240,128,128,1)
-                  colorNeedleEnd: rgba(255,160,122,.9)
-                  valueBox: true
-                  valueBoxStroke: 5
-                  valueBoxWidth: 60
-                  animationDuration: 1500
-                  animationRule: linear
-                  fontNumbersSize: 20
-
-      # ==============================================================================
-      # ROW 2a - TEMPERATURE: 24h graph + inside vs outside (column 1)
-      # ==============================================================================
-      - type: grid
-        cards:
-          - type: custom:mini-graph-card
-            title: 24h Outside Temperature
-            hours_to_show: 24
-            line_width: 3
-            points_per_hour: 2
-            height: 120
-            font_size: 150
-            entities:
-              - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
-                name: Temp
-                color: '#ff5722'
-            show:
-              graph: line
-              fill: fade
-              icon: true
-              legend: false
-              extrema: true
-              labels: false
-          - type: glance
-            title: Inside vs Outside
-            show_icon: false
-            columns: 4
-            entities:
-              - entity: sensor.hp2564ca_pro_v2_1_4_indoor_temperature
-                name: In
-              - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
-                name: Out
-              - entity: sensor.hp2564ca_pro_v2_1_4_indoor_humidity
-                name: In RH
-              - entity: sensor.hp2564ca_pro_v2_1_4_humidity
-                name: Out RH
-            card_mod:
-              style:
-                .entity$: |
-                  .name {
-                    font-size: 15px !important;
-                    color: var(--secondary-text-color) !important;
-                  }
-                  div:not(.name) {
-                    font-size: 22px !important;
-                    font-weight: 700 !important;
-                    line-height: 1.25 !important;
-                    white-space: nowrap !important;
-                  }
-                .: |
-                  ha-card {
-                    --ha-card-header-font-size: 24px;
-                  }
-
-      # ==============================================================================
-      # ROW 2b - STORM WATCH: lightning + strikes + last strike + wind (column 2)
-      # ==============================================================================
-      - type: grid
-        column_span: 1
+- title: Weather Station
+  path: weather_station
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    cards:
+    - type: grid
+      columns: 2
+      square: false
+      cards:
+      - type: clock
+        clock_size: medium
+        show_seconds: true
+        time_format: '12'
+      - type: markdown
+        content: '{{ states(''sensor.date_time'').split('', '')[0] }}'
         card_mod:
-          # Sections normally use a fixed row-gap between stacked cards
-          # (~8px per card via the grid's own gap plus each card's margin).
-          # Halving it here is what actually closes up the visible gaps
-          # between Lightning / Strikes / Last strike / Wind.
-          style: |
-            .grid.grid-container {
-              gap: 4px !important;
-            }
-        cards:
-          # NATIVE GAUGE CARD (replaces custom:sensor-bar-card-plus, 2026-10-22):
-          # sensor-bar-card-plus required card-mod shadow-DOM hacks to achieve
-          # value-driven colour and caused "entity not found" freezes on
-          # WebSocket reconnection. The native gauge card is part of the HA
-          # core frontend (no custom card dependency), handles reconnection
-          # natively, and supports value-driven colour segments directly.
-          #
-          # Uses sensor.live_lightning_distance (configuration.yaml), NOT the
-          # raw station distance: the station HOLDS the last strike distance
-          # indefinitely, so the template sensor resets to 40 km if no strike
-          # in the last 30 min.
-          #
-          # Needle position: left = close/dangerous, right = far/safe.
-          # Colour segments are value-driven by real km:
-          #   0-10 km  -> red    (close / dangerous)
-          #   10-25 km -> orange (approaching)
-          #   25-40 km -> yellow (distant)
-          - type: gauge
-            entity: sensor.live_lightning_distance
-            name: ⚡ Storm Distance
-            min: 0
-            max: 40
-            needle: true
-            segments:
-              - from: 0
-                color: '#f44336'
-              - from: 10
-                color: '#ff9800'
-              - from: 25
-                color: '#ffeb3b'
-          - type: custom:mini-graph-card
-            title: Lightning Strike Activity (24h)
-            entities:
-              # Plots sensor.lightning_strikes_per_hour (configuration.yaml):
-              # a statistics `change`-over-60min sensor that already encodes
-              # strikes-in-the-trailing-hour. The OLD approach plotted the raw
-              # cumulative counter with aggregate_func: delta, but strikes are
-              # sparse (one increment per hour), so each hourly group_by bucket
-              # held a single point and delta computed 0 for every bar - the
-              # graph was permanently flat (confirmed 2026-10-06). This sensor
-              # carries the real per-hour count, so `max` per bucket renders a
-              # genuine spike for each active hour.
-              - entity: sensor.lightning_strikes_per_hour
-                name: Strikes / hour
-                color: '#ffeb3b'
-            hours_to_show: 24
-            height: 70
-            # Scale the big state number up for distance reading (percentage of
-            # the card's base font size).
-            font_size: 140
-            # max per bucket: the source sensor is already a per-hour rate, so
-            # take the peak value seen in each hour bucket (not delta, which was
-            # the bug - see entity comment above).
-            aggregate_func: max
-            group_by: hour
-            # SOFT upper bound ('~'): keeps the axis at 10 so an all-zero day
-            # renders as a sensible flat line instead of a stack of tiny blips
-            # at the bottom, BUT still expands if a storm exceeds 10/hour (a
-            # hard `upper_bound: 10` would clip the peak of a real storm).
-            # Must be QUOTED - bare ~10 risks parsing as YAML null.
-            lower_bound: 0
-            upper_bound: '~10'
-            # BAR style, not line (2026-10-06): the data is sparse and spiky by
-            # nature - a handful of strikes land in one or two hours and every
-            # other hour is zero. A LINE of that is a flat line at zero with one
-            # near-invisible bump (reported: "value shows but no spikes"). Bars
-            # render each hour's strike count as its own column, so even a single
-            # active hour stands out as a clear spike against the zero baseline.
-            show:
-              graph: bar
-              fill: false
-              icon: true
-              legend: false
-              extrema: false
-              labels: false
-          # An `entity` card here truncated badly in a narrow column ("Last
-          # Detected ..." / "Septemb..."), because the raw state is a full
-          # datetime. Relative time ("8 days ago") is both shorter AND more
-          # glanceable from across the kitchen.
-          - type: markdown
-            content: >-
-              {% set s = states('sensor.hp2564ca_pro_v2_1_4_last_lightning_strike') %}
-              ⏱️ **Last strike:**
-              {% if s not in ['unknown', 'unavailable', 'None'] %}
-              {{ relative_time(as_datetime(s)) }} ago
-              {% else %}
-              none recorded
-              {% endif %}
-            card_mod:
-              style: |
-                ha-card {
-                  font-size: 20px !important;
-                  /* Default card padding (~16px top/bottom) is excessive for
-                     one short line - this card was the biggest contributor to
-                     the dead space in this column. */
-                  padding-top: 6px !important;
-                  padding-bottom: 6px !important;
-                  margin-bottom: 0 !important;
-                }
-                ha-markdown {
-                  margin: 0 !important;
-                }
-          # Moved here from the Wind section: after the barometer was removed,
-          # this (left) column was ~260px SHORTER than the windrose beside it,
-          # leaving dead space. Parking Wind Detail here balances the row and
-          # shortens the overall page. It still sits visually alongside the
-          # windrose.
-          # Wind summary. Was a glance card (Speed / Gust Now / Max Today);
-          # now markdown so wind direction can be templated from degrees into a
-          # 16-point compass label. 'Gust Now' dropped - 'Right Now' shows Gust.
-          # Direction uses the 10-MINUTE AVERAGE: the instantaneous
-          # wind_direction sensor jitters too much to read at a glance.
-          - type: markdown
-            title: Wind
-            content: |-
-              {% set deg = states('sensor.hp2564ca_pro_v2_1_4_wind_direction_10m_avg') | float(-1) %}
-              {% set dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',
-                             'S','SSW','SW','WSW','W','WNW','NW','NNW'] %}
-              {% set compass = dirs[(((deg / 22.5) + 0.5) | int) % 16] if deg >= 0 else '--' %}
-              | Speed | From | Max Today |
-              |:-:|:-:|:-:|
-              | {{ states('sensor.hp2564ca_pro_v2_1_4_wind_speed') | float(0) | round(1) }} kn | {{ compass }} | {{ states('sensor.hp2564ca_pro_v2_1_4_max_daily_gust') | float(0) | round(1) }} kn |
-            card_mod:
-              style:
-                ha-markdown$: |
-                  table {
-                    width: 100% !important;
-                    border-collapse: collapse !important;
-                    margin: 0 !important;
-                  }
-                  /* Equal thirds + explicit centring so each value sits directly
-                     under its heading. Markdown's ':-:' alignment hints are not
-                     honoured by HA's renderer, so it must be set in CSS. */
-                  th, td {
-                    width: 33.33% !important;
-                    text-align: center !important;
-                    border: none !important;
-                  }
-                  th {
-                    font-size: 15px !important;
-                    font-weight: 400 !important;
-                    color: var(--secondary-text-color) !important;
-                    padding: 0 0 2px 0 !important;
-                  }
-                  td {
-                    font-size: 28px !important;
-                    font-weight: 700 !important;
-                    padding: 0 !important;
-                    white-space: nowrap !important;
-                  }
-                .: |
-                  ha-card {
-                    --ha-card-header-font-size: 24px;
-                    padding-top: 6px !important;
-                    padding-bottom: 6px !important;
-                    margin-bottom: 0 !important;
-                  }
+          style: "ha-card {\n  height: 100% !important;\n  box-sizing: border-box !important;\n  display: flex !important;\n  flex-direction: column !important;\n  justify-content: center !important;\n  align-items: center !important;\n  text-align: center\
+            \ !important;\n}\nha-markdown {\n  font-size: 22px !important;\n  font-weight: 700 !important;\n  line-height: 1.3 !important;\n}\n"
+    - type: weather-forecast
+      entity: weather.forecast_home
+      name: Local Weather Forecast
+      show_current: true
+      show_forecast: true
+      secondary_info_attribute: humidity
+      forecast_type: daily
+      card_mod:
+        style: ".state {\n  font-size: 24px !important;\n  font-weight: 700 !important;\n}\n.name {\n  font-size: 15px !important;\n}\n.temp-attribute .temp {\n  font-size: 24px !important;\n  font-weight: 700 !important;\n}\n.attribute {\n  font-size:\
+          \ 15px !important;\n}\n.forecast-item-label {\n  font-size: 15px !important;\n  font-weight: 600 !important;\n}\n.forecast-item .temp {\n  font-size: 19px !important;\n  font-weight: 700 !important;\n}\n.forecast-item .templow {\n  font-size:\
+          \ 16px !important;\n}\n"
+  - type: grid
+    cards:
+    - type: grid
+      columns: 1
+      square: false
+      cards:
+      - type: custom:canvas-gauge-card
+        entity: sensor.free_power_score
+        card_height: 300
+        gauge:
+          type: radial-gauge
+          title: Free Power
+          width: 340
+          height: 340
+          units: kW
+          minValue: -8
+          maxValue: 10
+          majorTicks:
+          - '-8'
+          - '-6'
+          - '-4'
+          - '-2'
+          - '0'
+          - '2'
+          - '4'
+          - '6'
+          - '8'
+          - '10'
+          minorTicks: 2
+          strokeTicks: true
+          highlights:
+          - from: -8
+            to: 0
+            color: rgba(192,57,43,0.75)
+          - from: 0
+            to: 1
+            color: rgba(243,156,18,0.75)
+          - from: 1
+            to: 3
+            color: rgba(82,196,26,0.75)
+          - from: 3
+            to: 6
+            color: rgba(56,158,13,0.75)
+          - from: 6
+            to: 10
+            color: rgba(35,120,4,0.75)
+          colorPlate: '#222'
+          colorMajorTicks: '#f5f5f5'
+          colorMinorTicks: '#ddd'
+          colorTitle: '#fff'
+          colorUnits: '#ccc'
+          colorNumbers: '#eee'
+          colorNeedle: rgba(240,128,128,1)
+          colorNeedleEnd: rgba(255,160,122,.9)
+          valueBox: true
+          valueBoxStroke: 5
+          valueBoxWidth: 60
+          animationDuration: 1500
+          animationRule: linear
+          fontNumbersSize: 20
+  - type: grid
+    cards:
+    - type: custom:mini-graph-card
+      title: 24h Outside Temperature
+      hours_to_show: 24
+      line_width: 3
+      points_per_hour: 2
+      height: 120
+      font_size: 150
+      entities:
+      - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
+        name: Temp
+        color: '#ff5722'
+      show:
+        graph: line
+        fill: fade
+        icon: true
+        legend: false
+        extrema: true
+        labels: false
+    - type: glance
+      title: Inside vs Outside
+      show_icon: false
+      columns: 4
+      entities:
+      - entity: sensor.hp2564ca_pro_v2_1_4_indoor_temperature
+        name: In
+      - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
+        name: Out
+      - entity: sensor.hp2564ca_pro_v2_1_4_indoor_humidity
+        name: In RH
+      - entity: sensor.hp2564ca_pro_v2_1_4_humidity
+        name: Out RH
+      card_mod:
+        style:
+          .entity$: ".name {\n  font-size: 15px !important;\n  color: var(--secondary-text-color) !important;\n}\ndiv:not(.name) {\n  font-size: 22px !important;\n  font-weight: 700 !important;\n  line-height: 1.25 !important;\n  white-space: nowrap !important;\n\
+            }\n"
+          .: "ha-card {\n  --ha-card-header-font-size: 24px;\n}\n"
+  - type: grid
+    column_span: 1
+    card_mod:
+      style: ".grid.grid-container {\n  gap: 4px !important;\n}\n"
+    cards:
+    - type: gauge
+      entity: sensor.live_lightning_distance
+      name: ⚡ Storm Distance
+      min: 0
+      max: 40
+      needle: true
+      segments:
+      - from: 0
+        color: '#f44336'
+      - from: 10
+        color: '#ff9800'
+      - from: 25
+        color: '#ffeb3b'
+    - type: custom:mini-graph-card
+      title: Lightning Strike Activity (24h)
+      entities:
+      - entity: sensor.lightning_strikes_per_hour
+        name: Strikes / hour
+        color: '#ffeb3b'
+      hours_to_show: 24
+      height: 70
+      font_size: 140
+      aggregate_func: max
+      group_by: hour
+      lower_bound: 0
+      upper_bound: ~10
+      show:
+        graph: bar
+        fill: false
+        icon: true
+        legend: false
+        extrema: false
+        labels: false
+    - type: markdown
+      content: '{% set s = states(''sensor.hp2564ca_pro_v2_1_4_last_lightning_strike'') %} ⏱️ **Last strike:** {% if s not in [''unknown'', ''unavailable'', ''None''] %} {{ relative_time(as_datetime(s)) }} ago {% else %} none recorded {% endif %}'
+      card_mod:
+        style: "ha-card {\n  font-size: 20px !important;\n  /* Default card padding (~16px top/bottom) is excessive for\n     one short line - this card was the biggest contributor to\n     the dead space in this column. */\n  padding-top: 6px !important;\n\
+          \  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\nha-markdown {\n  margin: 0 !important;\n}\n"
+  - type: grid
+    cards:
+    - type: iframe
+      url: /local/bom-radar.html?v=2
+      grid_options:
+        rows: 6
+    - type: markdown
+      content: '{% set peak_raw = states(''sensor.rain_next_hour_peak'') %}
 
-      # ==============================================================================
-      # ROW 3a - RAIN TIMELINE & TOTAL ACCUMULATION (column 1)
-      # ==============================================================================
-      - type: grid
-        cards:
-          - type: custom:apexcharts-card
-            header:
-              show: true
-              title: Rain Timeline & Total Accumulation
-            graph_span: 24h
-            span:
-              start: day
-            now:
-              show: true
-              label: Now
-            apex_config:
-              chart:
-                height: 260
-              stroke:
-                curve: smooth
-            yaxis:
-              - id: rain
-                min: 0
-                decimals: 1
-                apex_config:
-                  title:
-                    text: mm
-            series:
-              # Rain rate (mm/h) - shows intensity when it's actively raining
-              - entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
-                name: Rain Intensity
-                type: column
-                color: "#1e88e5"
-                opacity: 0.6
-                stroke_width: 0
-                group_by:
-                  func: max
-                  duration: 5min
-              # Daily total accumulation - cumulative total for the day
-              - entity: sensor.hp2564ca_pro_v2_1_4_daily_rain_piezo
-                name: Day Total Accumulated
-                type: line
-                stroke_width: 3
-                color: "#ff9800"
-                curve: stepline
+        {% set have = peak_raw not in [''unknown'',''unavailable'',''none'',''''] %}
 
-      # ==============================================================================
-      # ROW 3b - WEATHER RADAR / BOM loop (column 2)
-      # ==============================================================================
-      - type: grid
-        cards:
-          # DIY animated BOM radar loop, served from /config/www/bom-radar.html.
-          # Source + full commentary in this repo at www/bom-radar.html.
-          #
-          # WHY NOT THE HACS CARD: custom:weather-radar-card animates RainViewer,
-          # but RainViewer only serves tiles at zoom 7 (~1.4 km/px), so echo is
-          # UPSCALED and renders as blocky squares. Confirmed by network trace -
-          # it requests /256/7/... at every zoom_level, so the card's zoom only
-          # changes magnification, never detail.
-          #   BOM's legacy Brisbane product is 512x512 over a fixed 128 km range
-          #   = 0.5 km/px, so at ~362 px it is DOWNSCALED and stays crisp.
-          #
-          # WHY THIS CAN BE A PLAIN STATIC FILE WITH NO PROXY: BOM's legacy frames
-          # send no CORS header, but displaying a cross-origin image in an <img>
-          # needs no CORS - only reading its pixels via canvas does. Verified from
-          # the HA origin: all four composite layers plus every frame load fine.
-          # (BOM's NEW WMTS is the opposite - it needs a Referer header AND pins
-          # Access-Control-Allow-Origin to bom.gov.au, so it is server-side only.)
-          #
-          # TRADE-OFF vs RainViewer, both measured 2026-09-17:
-          #   BOM        9 frames,  5 min apart,  40 min history, 0.5 km/px native
-          #   RainViewer 13 frames, 10 min apart, 120 min history, ~1.4 km/px
-          # So BOM is sharper with finer time steps but a much shorter window.
-          # BOM 404s cleanly beyond ~9 frames, and the page skips missing slots.
-          #
-          # TO SWITCH BACK to the RainViewer card, restore the block from git:
-          #   git show 180a934:dashboards/weather_dashboard.yaml
-          # (that commit has the fully-commented custom:weather-radar-card config)
-          #
-          # Bump ?v= to bust the browser cache after editing the html.
-          - type: iframe
-            url: /local/bom-radar.html?v=2
-            # Square composite in a 362px-wide cell wants a near-square cell.
-            # height = 64*rows - 8, so rows: 6 -> 376px against a 362px width.
-            # Still well inside Storm Watch's 545px in the left column, so the
-            # row band and the exact 1920px page fit are unchanged.
-            grid_options:
-              rows: 6
+        {% set onset_raw = states(''sensor.rain_onset_minutes'') %}
 
-      # ==============================================================================
-      # ROW 4a - FORECAST (column 1)
-      # ==============================================================================
-      - type: grid
-        cards:
-          - type: weather-forecast
-            entity: weather.forecast_home
-            name: Local Weather Forecast
-            show_current: true
-            show_forecast: true
-            secondary_info_attribute: humidity
-            forecast_type: daily
-            # This is a CORE HA card, and unlike the glance cards its whole tree
-            # lives in ONE shadow root (no per-item nested roots), so plain
-            # card-mod styles work - no '$' piercing needed.
-            # NOTE: `div.temp` exists BOTH in the current-conditions block and in
-            # each forecast item, so the two are scoped separately below.
-            # Increases are kept modest: this card governs the height of the
-            # final row, and the page has zero headroom at 1920px.
-            card_mod:
-              style: |
-                .state {
-                  font-size: 24px !important;
-                  font-weight: 700 !important;
-                }
-                .name {
-                  font-size: 15px !important;
-                }
-                .temp-attribute .temp {
-                  font-size: 24px !important;
-                  font-weight: 700 !important;
-                }
-                .attribute {
-                  font-size: 15px !important;
-                }
-                .forecast-item-label {
-                  font-size: 15px !important;
-                  font-weight: 600 !important;
-                }
-                .forecast-item .temp {
-                  font-size: 19px !important;
-                  font-weight: 700 !important;
-                }
-                .forecast-item .templow {
-                  font-size: 16px !important;
-                }
+        {% set coming = onset_raw not in [''unknown'',''unavailable'',''none'',''''] %}
 
-      # ==============================================================================
-      # ROW 4b - RAIN NOWCAST (column 2)
-      # ==============================================================================
-      - type: grid
-        cards:
-          # ================================================================
-          # RAIN NOWCAST - the one thing the radar cannot tell you: WHEN it
-          # gets here. Fed by the Tomorrow.io rest sensors in configuration.yaml
-          # (60 x 1-minute steps, 59-minute horizon).
-          #
-          # Sits in what was ~188px of dead space: the Storm Watch stack in the
-          # left column of this row measures 564px while the square radar can only
-          # be 376px, and the radar cannot grow into the gap because it is
-          # width-constrained at 362px.
-          #
-          # PROSE, not a table or a graph, on purpose:
-          #  * Most glances are DRY, so the null state has to look good. A table
-          #    of zeros or a flat line at the bottom of a chart is dead space
-          #    almost all the time; one short line is not.
-          #  * A 4-column table in 362px forces text too small to read from
-          #    across the kitchen, which is this display's whole constraint.
-          #  * A curve needs interpreting. The actual question is "can I hang the
-          #    washing out", and a sentence answers that directly.
-          #  * A curve would also need the full 60-point series stored as an
-          #    attribute; HA's rest platform can only extract raw JSON keys, not
-          #    computed or downsampled ones, so it would mean holding the whole
-          #    29 kB payload in the state machine. Prose needs only scalars.
-          #
-          # Deliberately mirrors the traffic light's h1 + p structure, which is
-          # already proven legible on this screen.
-          #
-          # THREE states, and the third matters: "no data" is NOT "dry". If the
-          # fetch fails, saying DRY would be falsely reassuring, so a failed
-          # forecast is shown as such in grey.
-          - type: markdown
-            content: |-
-              {% set peak_raw = states('sensor.rain_next_hour_peak') %}
-              {% set have = peak_raw not in ['unknown','unavailable','none',''] %}
-              {% set onset_raw = states('sensor.rain_onset_minutes') %}
-              {% set coming = onset_raw not in ['unknown','unavailable','none',''] %}
-              {% set m = onset_raw | int(-1) %}
-              {% set peak = peak_raw | float(0) %}
-              {% set chance = states('sensor.rain_next_hour_chance') | float(0) %}
-              {% set band = 'Heavy' if peak >= 7.5 else ('Moderate' if peak >= 2.5 else 'Light') %}
-              {% if not have %}
-              {% set head = 'NO DATA' %}
-              {% set detail = 'Rain forecast unavailable' %}
-              {% elif not coming %}
-              {% set head = 'DRY' %}
-              {% set detail = ('Nothing in the next hour' if chance < 10 else (chance | round(0) | int) ~ '% chance, nothing significant') %}
-              {% elif m <= 0 %}
-              {% set head = 'RAINING NOW' %}
-              {% set detail = band ~ ', up to ' ~ peak ~ ' mm/h' %}
-              {% else %}
-              {% set head = 'RAIN IN ' ~ m ~ ' MIN' %}
-              {% set detail = band ~ ' - ' ~ (chance | round(0) | int) ~ '% chance' ~ (' (uncertain)' if chance < 50 else '') %}
-              {% endif %}
-              # {{ head }}
-              {{ detail }}
-            card_mod:
-              # Slug -> colour, same approach as the traffic light: no thresholds
-              # duplicated here, the tiers live in the content template above.
-              # Dry stays on the default card background on purpose - it should
-              # not shout when there is nothing to say.
-              style: >-
-                {% set peak_raw = states('sensor.rain_next_hour_peak') %}
-                {% set have = peak_raw not in ['unknown','unavailable','none',''] %}
-                {% set coming = states('sensor.rain_onset_minutes') not in ['unknown','unavailable','none',''] %}
-                {% if not have %}
-                  {% set bg = '#616161' %}
-                  {% set fg = '#ffffff' %}
-                {% elif coming %}
-                  {% set bg = '#1565c0' %}
-                  {% set fg = '#ffffff' %}
-                {% else %}
-                  {% set bg = 'var(--ha-card-background, var(--card-background-color))' %}
-                  {% set fg = 'var(--primary-text-color)' %}
-                {% endif %}
-                ha-card {
-                  background: {{ bg }} !important;
-                  border: none !important;
-                  text-align: center !important;
-                  color: {{ fg }} !important;
-                  height: 100% !important;
-                  box-sizing: border-box !important;
-                  display: flex !important;
-                  flex-direction: column !important;
-                  justify-content: center !important;
-                  align-items: center !important;
-                }
-                ha-card h1 {
-                  /* 26px, not 32: "RAIN IN 12 MIN" is longer than any traffic
-                     light headline and wraps at 32px in this 362px column. */
-                  font-size: 26px !important;
-                  font-weight: 800 !important;
-                  line-height: 1.15 !important;
-                  margin: 2px 0 6px 0 !important;
-                  border-bottom: none !important;
-                  color: {{ fg }} !important;
-                }
-                ha-card p {
-                  font-size: 15px !important;
-                  line-height: 1.3 !important;
-                  margin: 0 !important;
-                  color: {{ fg }} !important;
-                }
-            # rows: 3 = 184px, which fills the gap under the radar. Combined with
-            # the radar's 376px that is 568px against Storm Watch's 564px, so the
-            # row band grows by only ~4px and the page stays well inside 1920.
-            grid_options:
-              rows: 3
+        {% set m = onset_raw | int(-1) %}
 
-      # ==============================================================================
-      # ROW 5a - SUN & MOON (column 1)
-      # ==============================================================================
-      - type: grid
-        cards:
-          - type: markdown
-            title: Sun & Moon
-            content: |-
-              {% set rise = states('sensor.sun_next_rising') %}
-              {% set set_ = states('sensor.sun_next_setting') %}
-              {% set p = states('sensor.moon_phase') %}
-              {% set em = {
-                   'new_moon': '🌑',
-                   'waxing_crescent': '🌘',
-                   'first_quarter': '🌗',
-                   'waxing_gibbous': '🌖',
-                   'full_moon': '🌕',
-                   'waning_gibbous': '🌔',
-                   'last_quarter': '🌓',
-                   'waning_crescent': '🌒' } %}
-              # ↑ {{ as_timestamp(rise) | timestamp_custom('%H:%M') }}   ↓ {{ as_timestamp(set_) | timestamp_custom('%H:%M') }}
-              ## {{ em.get(p, '🌙') }}
-              {{ p | replace('_', ' ') | title }}
-            card_mod:
-              # The rendered markdown (h1/h2/p) lives inside ha-markdown's OWN
-              # shadow root, so `ha-card h2` cannot reach it - that is why the
-              # earlier rules did nothing. `ha-markdown$` pierces that boundary
-              # (card-mod syntax); `.` targets the card itself.
-              style:
-                ha-markdown$: |
-                  h1 {
-                    /* sunrise / sunset times */
-                    font-size: 30px !important;
-                    font-weight: 700 !important;
-                    line-height: 1.2 !important;
-                    margin: 0 0 2px 0 !important;
-                    border-bottom: none !important;
-                    text-align: center !important;
-                  }
-                  h2 {
-                    /* The moon glyph, alone on its line so it can be sized
-                       independently. 80px (was 100px): at 100px with
-                       line-height 1.0 the emoji's ascender overflowed its line
-                       box upward and collided with the sunset arrow in the h1
-                       above. Slightly looser line-height + a top margin keep it
-                       clear. */
-                    font-size: 80px !important;
-                    line-height: 1.15 !important;
-                    margin: 6px 0 0 0 !important;
-                    border-bottom: none !important;
-                    font-weight: 400 !important;
-                    text-align: center !important;
-                  }
-                  p {
-                    /* phase name */
-                    font-size: 20px !important;
-                    font-weight: 600 !important;
-                    margin: 2px 0 0 0 !important;
-                    text-align: center !important;
-                  }
-                .: |
-                  ha-card {
-                    text-align: center !important;
-                    --ha-card-header-font-size: 22px;
-                  }
+        {% set peak = peak_raw | float(0) %}
 
-      # ==============================================================================
-      # ROW 5b - RAINFALL TOTALS (column 2)
-      # ==============================================================================
-      - type: grid
-        cards:
-          - type: glance
-            title: Rainfall Totals
-            show_icon: false
-            columns: 4
-            entities:
-              - entity: sensor.hp2564ca_pro_v2_1_4_24h_rain_piezo
-                name: 24 h
-              - entity: sensor.hp2564ca_pro_v2_1_4_weekly_rain_piezo
-                name: Week
-              - entity: sensor.hp2564ca_pro_v2_1_4_monthly_rain_piezo
-                name: Month
-              - entity: sensor.hp2564ca_pro_v2_1_4_yearly_rain_piezo
-                name: Year
-            card_mod:
-              style:
-                .entity$: |
-                  .name {
-                    font-size: 15px !important;
-                    color: var(--secondary-text-color) !important;
-                  }
-                  div:not(.name) {
-                    font-size: 19px !important;
-                    font-weight: 700 !important;
-                    line-height: 1.25 !important;
-                    white-space: nowrap !important;
-                  }
-                .: |
-                  ha-card {
-                    --ha-card-header-font-size: 24px;
-                  }
+        {% set chance = states(''sensor.rain_next_hour_chance'') | float(0) %}
+
+        {% set band = ''Heavy'' if peak >= 7.5 else (''Moderate'' if peak >= 2.5 else ''Light'') %}
+
+        {% if not have %}
+
+        {% set head = ''NO DATA'' %}
+
+        {% set detail = ''Rain forecast unavailable'' %}
+
+        {% elif not coming %}
+
+        {% set head = ''DRY'' %}
+
+        {% set detail = (''Nothing in the next hour'' if chance < 10 else (chance | round(0) | int) ~ ''% chance, nothing significant'') %}
+
+        {% elif m <= 0 %}
+
+        {% set head = ''RAINING NOW'' %}
+
+        {% set detail = band ~ '', up to '' ~ peak ~ '' mm/h'' %}
+
+        {% else %}
+
+        {% set head = ''RAIN IN '' ~ m ~ '' MIN'' %}
+
+        {% set detail = band ~ '' - '' ~ (chance | round(0) | int) ~ ''% chance'' ~ ('' (uncertain)'' if chance < 50 else '''') %}
+
+        {% endif %}
+
+        # {{ head }}
+
+        {{ detail }}'
+      card_mod:
+        style: "{% set peak_raw = states('sensor.rain_next_hour_peak') %} {% set have = peak_raw not in ['unknown','unavailable','none',''] %} {% set coming = states('sensor.rain_onset_minutes') not in ['unknown','unavailable','none',''] %} {% if not have\
+          \ %}\n  {% set bg = '#616161' %}\n  {% set fg = '#ffffff' %}\n{% elif coming %}\n  {% set bg = '#1565c0' %}\n  {% set fg = '#ffffff' %}\n{% else %}\n  {% set bg = 'var(--ha-card-background, var(--card-background-color))' %}\n  {% set fg = 'var(--primary-text-color)'\
+          \ %}\n{% endif %} ha-card {\n  background: {{ bg }} !important;\n  border: none !important;\n  text-align: center !important;\n  color: {{ fg }} !important;\n  height: 100% !important;\n  box-sizing: border-box !important;\n  display: flex !important;\n\
+          \  flex-direction: column !important;\n  justify-content: center !important;\n  align-items: center !important;\n} ha-card h1 {\n  /* 26px, not 32: \"RAIN IN 12 MIN\" is longer than any traffic\n     light headline and wraps at 32px in this 362px\
+          \ column. */\n  font-size: 26px !important;\n  font-weight: 800 !important;\n  line-height: 1.15 !important;\n  margin: 2px 0 6px 0 !important;\n  border-bottom: none !important;\n  color: {{ fg }} !important;\n} ha-card p {\n  font-size: 15px\
+          \ !important;\n  line-height: 1.3 !important;\n  margin: 0 !important;\n  color: {{ fg }} !important;\n}"
+      grid_options:
+        rows: 3
+  - type: grid
+    cards:
+    - type: custom:apexcharts-card
+      header:
+        show: true
+        title: Rain Timeline & Total Accumulation
+      graph_span: 24h
+      span:
+        start: day
+      now:
+        show: true
+        label: Now
+      apex_config:
+        chart:
+          height: 260
+        stroke:
+          curve: smooth
+      yaxis:
+      - id: rain
+        min: 0
+        decimals: 1
+        apex_config:
+          title:
+            text: mm
+      series:
+      - entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
+        name: Rain Intensity
+        type: column
+        color: '#1e88e5'
+        opacity: 0.6
+        stroke_width: 0
+        group_by:
+          func: max
+          duration: 5min
+      - entity: sensor.hp2564ca_pro_v2_1_4_daily_rain_piezo
+        name: Day Total Accumulated
+        type: line
+        stroke_width: 3
+        color: '#ff9800'
+        curve: stepline
+    - type: markdown
+      title: Wind
+      content: "{% set deg = states('sensor.hp2564ca_pro_v2_1_4_wind_direction_10m_avg') | float(-1) %}\n{% set dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',\n               'S','SSW','SW','WSW','W','WNW','NW','NNW'] %}\n{% set compass = dirs[(((deg\
+        \ / 22.5) + 0.5) | int) % 16] if deg >= 0 else '--' %}\n| Speed | From | Max Today |\n|:-:|:-:|:-:|\n| {{ states('sensor.hp2564ca_pro_v2_1_4_wind_speed') | float(0) | round(1) }} kn | {{ compass }} | {{ states('sensor.hp2564ca_pro_v2_1_4_max_daily_gust')\
+        \ | float(0) | round(1) }} kn |"
+      card_mod:
+        style:
+          ha-markdown$: "table {\n  width: 100% !important;\n  border-collapse: collapse !important;\n  margin: 0 !important;\n}\nth, td {\n  width: 33.33% !important;\n  text-align: center !important;\n  border: none !important;\n}\nth {\n  font-size:\
+            \ 15px !important;\n  font-weight: 400 !important;\n  color: var(--secondary-text-color) !important;\n  padding: 0 0 2px 0 !important;\n}\ntd {\n  font-size: 28px !important;\n  font-weight: 700 !important;\n  padding: 0 !important;\n  white-space:\
+            \ nowrap !important;\n}\n"
+          .: "ha-card {\n  --ha-card-header-font-size: 24px;\n  padding-top: 6px !important;\n  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\n"
+  - type: grid
+    cards:
+    - type: glance
+      title: Right Now
+      show_name: true
+      show_state: true
+      show_icon: false
+      columns: 3
+      entities:
+      - entity: sensor.hp2564ca_pro_v2_1_4_feels_like_temperature
+        name: Feels Like
+      - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
+        name: Actual
+      - entity: sensor.hp2564ca_pro_v2_1_4_humidity
+        name: Humidity
+      - entity: sensor.hp2564ca_pro_v2_1_4_wind_gust
+        name: Gust
+      - entity: binary_sensor.hp2564ca_pro_v2_1_4_rain_state_piezo
+        name: Raining?
+      - entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
+        name: Rain Rate
+      card_mod:
+        style:
+          .entity$: ".name {\n  font-size: 16px !important;\n  color: var(--secondary-text-color) !important;\n}\ndiv:not(.name) {\n  /* 34px truncated (\"19.3...\") in a 3-col ~120px cell.\n     26px fits \"19.3 °C\" / \"0.0 mm/h\" without ellipsis. */\n\
+            \  font-size: 26px !important;\n  font-weight: 700 !important;\n  line-height: 1.25 !important;\n  white-space: nowrap !important;\n}\n"
+          .entity:last-child$: "div:not(.name) {\n  font-size: 21px !important;\n}\n"
+          .: "ha-card {\n  --ha-card-header-font-size: 26px;\n}\n"
+  - type: grid
+    cards:
+    - type: markdown
+      title: Sun & Moon
+      content: "{% set rise = states('sensor.sun_next_rising') %}\n{% set set_ = states('sensor.sun_next_setting') %}\n{% set p = states('sensor.moon_phase') %}\n{% set em = {\n     'new_moon': '\U0001F311',\n     'waxing_crescent': '\U0001F318',\n   \
+        \  'first_quarter': '\U0001F317',\n     'waxing_gibbous': '\U0001F316',\n     'full_moon': '\U0001F315',\n     'waning_gibbous': '\U0001F314',\n     'last_quarter': '\U0001F313',\n     'waning_crescent': '\U0001F312' } %}\n# ↑ {{ as_timestamp(rise)\
+        \ | timestamp_custom('%H:%M') }}   ↓ {{ as_timestamp(set_) | timestamp_custom('%H:%M') }}\n## {{ em.get(p, '\U0001F319') }}\n{{ p | replace('_', ' ') | title }}"
+      card_mod:
+        style:
+          ha-markdown$: "h1 {\n  /* sunrise / sunset times */\n  font-size: 30px !important;\n  font-weight: 700 !important;\n  line-height: 1.2 !important;\n  margin: 0 0 2px 0 !important;\n  border-bottom: none !important;\n  text-align: center !important;\n\
+            }\nh2 {\n  /* The moon glyph, alone on its line so it can be sized\n     independently. 80px (was 100px): at 100px with\n     line-height 1.0 the emoji's ascender overflowed its line\n     box upward and collided with the sunset arrow in the\
+            \ h1\n     above. Slightly looser line-height + a top margin keep it\n     clear. */\n  font-size: 80px !important;\n  line-height: 1.15 !important;\n  margin: 6px 0 0 0 !important;\n  border-bottom: none !important;\n  font-weight: 400 !important;\n\
+            \  text-align: center !important;\n}\np {\n  /* phase name */\n  font-size: 20px !important;\n  font-weight: 600 !important;\n  margin: 2px 0 0 0 !important;\n  text-align: center !important;\n}\n"
+          .: "ha-card {\n  text-align: center !important;\n  --ha-card-header-font-size: 22px;\n}\n"
+  - type: grid
+    cards:
+    - type: glance
+      title: Rainfall Totals
+      show_icon: false
+      columns: 4
+      entities:
+      - entity: sensor.hp2564ca_pro_v2_1_4_24h_rain_piezo
+        name: 24 h
+      - entity: sensor.hp2564ca_pro_v2_1_4_weekly_rain_piezo
+        name: Week
+      - entity: sensor.hp2564ca_pro_v2_1_4_monthly_rain_piezo
+        name: Month
+      - entity: sensor.hp2564ca_pro_v2_1_4_yearly_rain_piezo
+        name: Year
+      card_mod:
+        style:
+          .entity$: ".name {\n  font-size: 15px !important;\n  color: var(--secondary-text-color) !important;\n}\ndiv:not(.name) {\n  font-size: 19px !important;\n  font-weight: 700 !important;\n  line-height: 1.25 !important;\n  white-space: nowrap !important;\n\
+            }\n"
+          .: "ha-card {\n  --ha-card-header-font-size: 24px;\n}\n"
