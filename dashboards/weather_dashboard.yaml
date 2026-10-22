@@ -130,49 +130,6 @@ views:
             }\n"
           .: "ha-card {\n  --ha-card-header-font-size: 24px;\n}\n"
   - type: grid
-    column_span: 1
-    card_mod:
-      style: ".grid.grid-container {\n  gap: 4px !important;\n}\n"
-    cards:
-    - type: gauge
-      entity: sensor.live_lightning_distance
-      name: ⚡ Storm Distance
-      min: 0
-      max: 40
-      needle: true
-      segments:
-      - from: 0
-        color: '#f44336'
-      - from: 10
-        color: '#ff9800'
-      - from: 25
-        color: '#ffeb3b'
-    - type: custom:mini-graph-card
-      title: Lightning Strike Activity (24h)
-      entities:
-      - entity: sensor.lightning_strikes_per_hour
-        name: Strikes / hour
-        color: '#ffeb3b'
-      hours_to_show: 24
-      height: 70
-      font_size: 140
-      aggregate_func: max
-      group_by: hour
-      lower_bound: 0
-      upper_bound: ~10
-      show:
-        graph: bar
-        fill: false
-        icon: true
-        legend: false
-        extrema: false
-        labels: false
-    - type: markdown
-      content: '{% set s = states(''sensor.hp2564ca_pro_v2_1_4_last_lightning_strike'') %} ⏱️ **Last strike:** {% if s not in [''unknown'', ''unavailable'', ''None''] %} {{ relative_time(as_datetime(s)) }} ago {% else %} none recorded {% endif %}'
-      card_mod:
-        style: "ha-card {\n  font-size: 20px !important;\n  /* Default card padding (~16px top/bottom) is excessive for\n     one short line - this card was the biggest contributor to\n     the dead space in this column. */\n  padding-top: 6px !important;\n\
-          \  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\nha-markdown {\n  margin: 0 !important;\n}\n"
-  - type: grid
     cards:
     - type: iframe
       url: /local/bom-radar.html?v=2
@@ -267,6 +224,49 @@ views:
           }
       grid_options:
         rows: 2
+  - type: grid
+    column_span: 1
+    card_mod:
+      style: ".grid.grid-container {\n  gap: 4px !important;\n}\n"
+    cards:
+    - type: gauge
+      entity: sensor.live_lightning_distance
+      name: ⚡ Storm Distance
+      min: 0
+      max: 40
+      needle: true
+      segments:
+      - from: 0
+        color: '#f44336'
+      - from: 10
+        color: '#ff9800'
+      - from: 25
+        color: '#ffeb3b'
+    - type: custom:mini-graph-card
+      title: Lightning Strike Activity (24h)
+      entities:
+      - entity: sensor.lightning_strikes_per_hour
+        name: Strikes / hour
+        color: '#ffeb3b'
+      hours_to_show: 24
+      height: 70
+      font_size: 140
+      aggregate_func: max
+      group_by: hour
+      lower_bound: 0
+      upper_bound: ~10
+      show:
+        graph: bar
+        fill: false
+        icon: true
+        legend: false
+        extrema: false
+        labels: false
+    - type: markdown
+      content: '{% set s = states(''sensor.hp2564ca_pro_v2_1_4_last_lightning_strike'') %} ⏱️ **Last strike:** {% if s not in [''unknown'', ''unavailable'', ''None''] %} {{ relative_time(as_datetime(s)) }} ago {% else %} none recorded {% endif %}'
+      card_mod:
+        style: "ha-card {\n  font-size: 20px !important;\n  /* Default card padding (~16px top/bottom) is excessive for\n     one short line - this card was the biggest contributor to\n     the dead space in this column. */\n  padding-top: 6px !important;\n\
+          \  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\nha-markdown {\n  margin: 0 !important;\n}\n"
   - type: grid
     cards:
     - type: custom:apexcharts-card
