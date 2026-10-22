@@ -347,20 +347,6 @@ views:
           .: "ha-card {\n  --ha-card-header-font-size: 24px;\n  padding-top: 6px !important;\n  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\n"
   - type: grid
     cards:
-    - type: markdown
-      title: Sun & Moon
-      content: "{% set rise = states('sensor.sun_next_rising') %}\n{% set set_ = states('sensor.sun_next_setting') %}\n{% set p = states('sensor.moon_phase') %}\n{% set em = {\n     'new_moon': '\U0001F311',\n     'waxing_crescent': '\U0001F318',\n   \
-        \  'first_quarter': '\U0001F317',\n     'waxing_gibbous': '\U0001F316',\n     'full_moon': '\U0001F315',\n     'waning_gibbous': '\U0001F314',\n     'last_quarter': '\U0001F313',\n     'waning_crescent': '\U0001F312' } %}\n# ↑ {{ as_timestamp(rise)\
-        \ | timestamp_custom('%H:%M') }}   ↓ {{ as_timestamp(set_) | timestamp_custom('%H:%M') }}\n## {{ em.get(p, '\U0001F319') }}\n{{ p | replace('_', ' ') | title }}"
-      card_mod:
-        style:
-          ha-markdown$: "h1 {\n  /* sunrise / sunset times */\n  font-size: 30px !important;\n  font-weight: 700 !important;\n  line-height: 1.2 !important;\n  margin: 0 0 2px 0 !important;\n  border-bottom: none !important;\n  text-align: center !important;\n\
-            }\nh2 {\n  /* The moon glyph, alone on its line so it can be sized\n     independently. 80px (was 100px): at 100px with\n     line-height 1.0 the emoji's ascender overflowed its line\n     box upward and collided with the sunset arrow in the\
-            \ h1\n     above. Slightly looser line-height + a top margin keep it\n     clear. */\n  font-size: 80px !important;\n  line-height: 1.15 !important;\n  margin: 6px 0 0 0 !important;\n  border-bottom: none !important;\n  font-weight: 400 !important;\n\
-            \  text-align: center !important;\n}\np {\n  /* phase name */\n  font-size: 20px !important;\n  font-weight: 600 !important;\n  margin: 2px 0 0 0 !important;\n  text-align: center !important;\n}\n"
-          .: "ha-card {\n  text-align: center !important;\n  --ha-card-header-font-size: 22px;\n}\n"
-  - type: grid
-    cards:
     - type: glance
       title: Rainfall Totals
       show_icon: false
