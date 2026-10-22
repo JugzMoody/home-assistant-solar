@@ -307,19 +307,6 @@ views:
         stroke_width: 3
         color: '#ff9800'
         curve: stepline
-    - type: markdown
-      title: Wind
-      content: "{% set deg = states('sensor.hp2564ca_pro_v2_1_4_wind_direction_10m_avg') | float(-1) %}\n{% set dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',\n               'S','SSW','SW','WSW','W','WNW','NW','NNW'] %}\n{% set compass = dirs[(((deg\
-        \ / 22.5) + 0.5) | int) % 16] if deg >= 0 else '--' %}\n| Speed | From | Max Today |\n|:-:|:-:|:-:|\n| {{ states('sensor.hp2564ca_pro_v2_1_4_wind_speed') | float(0) | round(1) }} kn | {{ compass }} | {{ states('sensor.hp2564ca_pro_v2_1_4_max_daily_gust')\
-        \ | float(0) | round(1) }} kn |"
-      card_mod:
-        style:
-          ha-markdown$: "table {\n  width: 100% !important;\n  border-collapse: collapse !important;\n  margin: 0 !important;\n}\nth, td {\n  width: 33.33% !important;\n  text-align: center !important;\n  border: none !important;\n}\nth {\n  font-size:\
-            \ 15px !important;\n  font-weight: 400 !important;\n  color: var(--secondary-text-color) !important;\n  padding: 0 0 2px 0 !important;\n}\ntd {\n  font-size: 28px !important;\n  font-weight: 700 !important;\n  padding: 0 !important;\n  white-space:\
-            \ nowrap !important;\n}\n"
-          .: "ha-card {\n  --ha-card-header-font-size: 24px;\n  padding-top: 6px !important;\n  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\n"
-  - type: grid
-    cards:
     - type: glance
       title: Right Now
       show_name: true
@@ -345,6 +332,19 @@ views:
             \  font-size: 26px !important;\n  font-weight: 700 !important;\n  line-height: 1.25 !important;\n  white-space: nowrap !important;\n}\n"
           .entity:last-child$: "div:not(.name) {\n  font-size: 21px !important;\n}\n"
           .: "ha-card {\n  --ha-card-header-font-size: 26px;\n}\n"
+  - type: grid
+    cards:
+    - type: markdown
+      title: Wind
+      content: "{% set deg = states('sensor.hp2564ca_pro_v2_1_4_wind_direction_10m_avg') | float(-1) %}\n{% set dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE',\n               'S','SSW','SW','WSW','W','WNW','NW','NNW'] %}\n{% set compass = dirs[(((deg\
+        \ / 22.5) + 0.5) | int) % 16] if deg >= 0 else '--' %}\n| Speed | From | Max Today |\n|:-:|:-:|:-:|\n| {{ states('sensor.hp2564ca_pro_v2_1_4_wind_speed') | float(0) | round(1) }} kn | {{ compass }} | {{ states('sensor.hp2564ca_pro_v2_1_4_max_daily_gust')\
+        \ | float(0) | round(1) }} kn |"
+      card_mod:
+        style:
+          ha-markdown$: "table {\n  width: 100% !important;\n  border-collapse: collapse !important;\n  margin: 0 !important;\n}\nth, td {\n  width: 33.33% !important;\n  text-align: center !important;\n  border: none !important;\n}\nth {\n  font-size:\
+            \ 15px !important;\n  font-weight: 400 !important;\n  color: var(--secondary-text-color) !important;\n  padding: 0 0 2px 0 !important;\n}\ntd {\n  font-size: 28px !important;\n  font-weight: 700 !important;\n  padding: 0 !important;\n  white-space:\
+            \ nowrap !important;\n}\n"
+          .: "ha-card {\n  --ha-card-header-font-size: 24px;\n  padding-top: 6px !important;\n  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\n"
   - type: grid
     cards:
     - type: markdown
