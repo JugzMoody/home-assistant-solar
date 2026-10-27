@@ -265,10 +265,11 @@ views:
         legend:
           show: false
         stroke:
-          width: [0, 3]
-          curve: smooth
+          width: [0, 0]
         dataLabels:
           enabled: false
+        markers:
+          size: [0, 5]
       yaxis:
         - id: strikes
           min: 0
@@ -298,18 +299,19 @@ views:
             func: diff
             duration: 1h
           transform: 'return x < 0 ? 0 : x;'
-        # Proximity: live_lightning_distance dips toward 0 as strikes land close,
-        # sits at 40 when quiet. Reversed axis so "closer" is visually higher/
-        # more alarming. min per bucket = closest strike that hour.
-        - entity: sensor.live_lightning_distance
-          name: Distance (km)
+        # Per-strike proximity (2026-10-27, option 1): raw lightning_strike_distance
+        # register at native resolution, rendered as DOTS. apexcharts-card (this
+        # version) rejects type: scatter, so we use type: line with stroke width 0
+        # (no connecting line) + markers size 5 = scatter-like points. Each dot is
+        # an actual recorded strike event, far more granular than the old hourly
+        # min, and honest: discrete dots, not a line fabricating a smooth storm
+        # track between sparse events. Reversed axis so a closer strike sits higher.
+        - entity: sensor.hp2564ca_pro_v2_1_4_lightning_strike_distance
+          name: Strike distance (km)
           type: line
           color: '#f44336'
           yaxis_id: distance
-          stroke_width: 3
-          group_by:
-            func: min
-            duration: 1h
+          stroke_width: 0
   - type: grid
     cards:
     - type: custom:apexcharts-card
