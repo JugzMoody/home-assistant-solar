@@ -242,31 +242,74 @@ views:
         color: '#ff9800'
       - from: 25
         color: '#ffeb3b'
-    - type: custom:mini-graph-card
-      title: Lightning Strike Activity (24h)
-      entities:
-      - entity: sensor.lightning_strikes_per_hour
-        name: Strikes / hour
-        color: '#ffeb3b'
-      hours_to_show: 24
-      height: 70
-      font_size: 140
-      aggregate_func: max
-      group_by: hour
-      lower_bound: 0
-      upper_bound: ~10
-      show:
-        graph: bar
-        fill: false
-        icon: true
-        legend: false
-        extrema: false
-        labels: false
-    - type: markdown
-      content: '{% set s = states(''sensor.hp2564ca_pro_v2_1_4_last_lightning_strike'') %} ⏱️ **Last strike:** {% if s not in [''unknown'', ''unavailable'', ''None''] %} {{ relative_time(as_datetime(s)) }} ago {% else %} none recorded {% endif %}'
-      card_mod:
-        style: "ha-card {\n  font-size: 20px !important;\n  /* Default card padding (~16px top/bottom) is excessive for\n     one short line - this card was the biggest contributor to\n     the dead space in this column. */\n  padding-top: 6px !important;\n\
-          \  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\nha-markdown {\n  margin: 0 !important;\n}\n"
+    # Storm story (2026-10-27): replaces the mini-graph 24h-history card AND the
+    # "Last strike: X ago" markdown with one ApexCharts card. Bars = true
+    # strikes/hour (diff on the cumulative counter, auto-scaling, no clip);
+    # line = strike proximity over time via sensor.live_lightning_distance
+    # (dips toward 0 when a strike lands close, sits at 40 when quiet, so the
+    # line shows the storm approaching/receding). The distance GAUGE above
+    # stays as the at-a-glance "how close now" read; this card is the history.
+    # Recency is implicit: the last bar/dip's position on the 24h axis shows
+    # when the last strike was, so the separate last-strike text is dropped.
+    - type: custom:apexcharts-card
+      header:
+        show: true
+        title: Lightning — strikes/hr & proximity (24h)
+        show_states: false
+      graph_span: 24h
+      span:
+        start: day
+      apex_config:
+        chart:
+          height: 200
+        legend:
+          show: false
+        stroke:
+          width: [0, 3]
+          curve: smooth
+        dataLabels:
+          enabled: false
+      yaxis:
+        - id: strikes
+          min: 0
+          decimals: 0
+          apex_config:
+            title:
+              text: strikes/hr
+        - id: distance
+          opposite: true
+          min: 0
+          max: 40
+          decimals: 0
+          apex_config:
+            title:
+              text: km
+            reversed: true
+      series:
+        # True per-hour strike count from the raw cumulative counter. diff gives
+        # the increase per bucket; the midnight reset produces one negative
+        # bucket, clamped to 0 by the transform so it renders as no bar.
+        - entity: sensor.hp2564ca_pro_v2_1_4_lightning_strikes
+          name: Strikes/hr
+          type: column
+          color: '#ffeb3b'
+          yaxis_id: strikes
+          group_by:
+            func: diff
+            duration: 1h
+          transform: 'return x < 0 ? 0 : x;'
+        # Proximity: live_lightning_distance dips toward 0 as strikes land close,
+        # sits at 40 when quiet. Reversed axis so "closer" is visually higher/
+        # more alarming. min per bucket = closest strike that hour.
+        - entity: sensor.live_lightning_distance
+          name: Distance (km)
+          type: line
+          color: '#f44336'
+          yaxis_id: distance
+          stroke_width: 3
+          group_by:
+            func: min
+            duration: 1h
   - type: grid
     cards:
     - type: custom:apexcharts-card
@@ -314,23 +357,15 @@ views:
       show_icon: false
       columns: 3
       entities:
-      - entity: sensor.hp2564ca_pro_v2_1_4_feels_like_temperature
-        name: Feels Like
+      - entity: sensor.hp2564ca_pro_v2_1_4_indoor_temperature
+        name: Inside
       - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
-        name: Actual
+        name: Outside
       - entity: sensor.hp2564ca_pro_v2_1_4_humidity
         name: Humidity
-      - entity: sensor.hp2564ca_pro_v2_1_4_wind_gust
-        name: Gust
-      - entity: binary_sensor.hp2564ca_pro_v2_1_4_rain_state_piezo
-        name: Raining?
-      - entity: sensor.hp2564ca_pro_v2_1_4_rain_rate_piezo
-        name: Rain Rate
       card_mod:
         style:
-          .entity$: ".name {\n  font-size: 16px !important;\n  color: var(--secondary-text-color) !important;\n}\ndiv:not(.name) {\n  /* 34px truncated (\"19.3...\") in a 3-col ~120px cell.\n     26px fits \"19.3 °C\" / \"0.0 mm/h\" without ellipsis. */\n\
-            \  font-size: 26px !important;\n  font-weight: 700 !important;\n  line-height: 1.25 !important;\n  white-space: nowrap !important;\n}\n"
-          .entity:last-child$: "div:not(.name) {\n  font-size: 21px !important;\n}\n"
+          .entity$: ".name {\n  font-size: 16px !important;\n  color: var(--secondary-text-color) !important;\n}\ndiv:not(.name) {\n  font-size: 26px !important;\n  font-weight: 700 !important;\n  line-height: 1.25 !important;\n  white-space: nowrap !important;\n}\n"
           .: "ha-card {\n  --ha-card-header-font-size: 26px;\n}\n"
   - type: grid
     cards:
