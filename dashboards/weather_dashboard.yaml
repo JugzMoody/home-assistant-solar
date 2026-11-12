@@ -115,9 +115,11 @@ views:
       graph_span: 1439min
       span:
         start: day
+      # Dashed line only, no 'Now' label (2026-11-12): on a warming morning the
+      # max is the latest reading, so its label landed on top of 'Now'. The
+      # line already ends at the current time (extend_to: now).
       now:
         show: true
-        label: Now
       apex_config:
         chart:
           # 238 px keeps this section at about 504 px, matching the lightning
@@ -129,23 +131,56 @@ views:
         stroke:
           width: 3
           curve: smooth
+      # Bigger min/max labels for reading from across the kitchen (2026-11-12).
+      # apexcharts-card hard-codes them (value 11px via ApexCharts default, time
+      # 8px weight 200) with no config option, so restyle the SVG text here and
+      # select on the font-size attribute the card writes. The label boxes are
+      # sized at draw time for the small text, so hide them and use a halo
+      # (stroke in the card background colour) for contrast instead. The time
+      # sits 22px above the point; nudge it up so it clears the bigger value.
+      card_mod:
+        style: |
+          .apexcharts-point-annotations rect {
+            fill: transparent !important;
+            stroke: none !important;
+          }
+          .apexcharts-point-annotations text {
+            paint-order: stroke;
+            stroke: var(--card-background-color, #1c1c1c);
+            stroke-width: 4px;
+            stroke-linejoin: round;
+          }
+          .apexcharts-point-annotations text[font-size="11px"] {
+            font-size: 20px !important;
+            font-weight: 700 !important;
+            fill: #ff5722 !important;
+          }
+          .apexcharts-point-annotations text[font-size="8px"] {
+            font-size: 15px !important;
+            font-weight: 400 !important;
+            fill: var(--secondary-text-color) !important;
+            transform: translateY(-8px);
+          }
       # Headroom above/below the data so the min and max labels are not clipped
-      # at the chart edges.
+      # at the chart edges. +2 on top because the bigger time label sits above
+      # the max value and touched the top edge with +1.
       yaxis:
       - decimals: 0
         min: '|-1|'
-        max: '|+1|'
+        max: '|+2|'
       series:
+      # Plain line, no fill (2026-11-12): fill suits accumulations like rain,
+      # but under temperature the shaded area has no meaning (the axis starts
+      # at min-1, not zero) and it sat behind the min/max labels.
       - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
         name: Temp
-        type: area
+        type: line
         color: '#ff5722'
-        opacity: 0.25
         stroke_width: 3
         # By default the last reading is held flat to the end of the span,
         # which draws a fake filled 'forecast' across the rest of the day.
         # extend_to is a SERIES option (not under show:); 'now' stops the line
-        # and fill at the current time.
+        # at the current time.
         extend_to: now
         show:
           in_header: true
@@ -407,8 +442,11 @@ views:
         name: Outside
       - entity: sensor.hp2564ca_pro_v2_1_4_humidity
         name: Humidity
+      # Title padding trimmed from 20/24 px to 12/16 px (2026-11-12): cuts the
+      # card from 152 to ~136 px (about 10%) without shrinking any text.
       card_mod:
         style:
+          ha-card$: ".card-header {\n  padding-top: 12px !important;\n  padding-bottom: 16px !important;\n}\n"
           .entity$: ".name {\n  font-size: 16px !important;\n  color: var(--secondary-text-color) !important;\n}\ndiv:not(.name) {\n  font-size: 26px !important;\n  font-weight: 700 !important;\n  line-height: 1.25 !important;\n  white-space: nowrap !important;\n}\n"
           .: "ha-card {\n  --ha-card-header-font-size: 26px;\n}\n"
   - type: grid
@@ -422,8 +460,10 @@ views:
         style:
           ha-markdown$: "table {\n  width: 100% !important;\n  border-collapse: collapse !important;\n  margin: 0 !important;\n}\nth, td {\n  width: 33.33% !important;\n  text-align: center !important;\n  border: none !important;\n}\nth {\n  font-size:\
             \ 15px !important;\n  font-weight: 400 !important;\n  color: var(--secondary-text-color) !important;\n  padding: 0 0 2px 0 !important;\n}\ntd {\n  font-size: 28px !important;\n  font-weight: 700 !important;\n  padding: 0 !important;\n  white-space:\
-            \ nowrap !important;\n}\n"
-          .: "ha-card {\n  --ha-card-header-font-size: 24px;\n  padding-top: 6px !important;\n  padding-bottom: 6px !important;\n  margin-bottom: 0 !important;\n}\n"
+            \ nowrap !important;\n  line-height: 1.1 !important;\n}\n"
+          # Padding removed (2026-11-12) so this card matches Rainfall Totals
+          # beside it (140 px) and the page has an even bottom edge.
+          .: "ha-card {\n  --ha-card-header-font-size: 24px;\n  padding-top: 0 !important;\n  padding-bottom: 0 !important;\n  margin-bottom: 0 !important;\n}\nha-markdown {\n  padding-bottom: 7px !important;\n}\n"
   - type: grid
     cards:
     - type: glance
