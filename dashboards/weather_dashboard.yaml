@@ -93,24 +93,66 @@ views:
           fontNumbersSize: 20
   - type: grid
     cards:
-    - type: custom:mini-graph-card
-      title: 24h Outside Temperature
-      hours_to_show: 24
-      line_width: 3
-      points_per_hour: 2
-      height: 120
-      font_size: 150
-      entities:
+    # Outside temperature TODAY (2026-11-12): was a mini-graph-card over a rolling
+    # 24h window, so before noon its 'Max' was yesterday's afternoon peak shown
+    # as a bare time (e.g. 29.4 at 11:59 AM at 9:30 AM = yesterday). Now an
+    # ApexCharts card with span.start: day, so the range is midnight -> now and
+    # the min/max markers are always today's. extremas: time prints the time of
+    # each. The right part of the chart is empty until evening (same as the rain
+    # timeline) and the 'Now' marker shows where we are. The chart height is
+    # sized to keep this section the same height as the mini-graph version so
+    # the row pairing with its neighbour is not disturbed.
+    - type: custom:apexcharts-card
+      header:
+        show: true
+        title: Outside Temperature - Today
+        show_states: true
+        colorize_states: false
+      # 1439 min, not 24h: the min/max time labels include the DATE unless the
+      # graph's start and end are on the same calendar day (apexcharts-card
+      # sameDay check). Ending one minute before midnight keeps the labels to
+      # just the time. The x-axis still reads 12 am to 9 pm.
+      graph_span: 1439min
+      span:
+        start: day
+      now:
+        show: true
+        label: Now
+      apex_config:
+        chart:
+          # 238 px keeps this section at about 504 px, matching the lightning
+          # section beside it (measured: 260 px made the section 526 px and
+          # opened a 22 px gap in that row).
+          height: 238
+        legend:
+          show: false
+        stroke:
+          width: 3
+          curve: smooth
+      # Headroom above/below the data so the min and max labels are not clipped
+      # at the chart edges.
+      yaxis:
+      - decimals: 0
+        min: '|-1|'
+        max: '|+1|'
+      series:
       - entity: sensor.hp2564ca_pro_v2_1_4_outdoor_temperature
         name: Temp
+        type: area
         color: '#ff5722'
-      show:
-        graph: line
-        fill: fade
-        icon: true
-        legend: false
-        extrema: true
-        labels: false
+        opacity: 0.25
+        stroke_width: 3
+        # By default the last reading is held flat to the end of the span,
+        # which draws a fake filled 'forecast' across the rest of the day.
+        # extend_to is a SERIES option (not under show:); 'now' stops the line
+        # and fill at the current time.
+        extend_to: now
+        show:
+          in_header: true
+          extremas: time
+        group_by:
+          func: avg
+          duration: 5min
     - type: glance
       title: Inside vs Outside
       show_icon: false
