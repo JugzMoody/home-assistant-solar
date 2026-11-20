@@ -413,10 +413,13 @@ template:
       - name: "Sungrow Output Percent"
         unique_id: sungrow_output_percent
         unit_of_measurement: "%"
-        # Rated 5000 W (SG5.0RS). sensor.sungrow_live_power_output is W (scale 1).
+        # Rated 5000 W (SG5.0RS). Uses sensor.sungrow_solar_only (2026-11-21),
+        # not the raw Modbus reg 5016 (sensor.sungrow_live_power_output): that
+        # register is total DC power and includes the Powerwall during a
+        # discharge/export, so it pinned this gauge at 100% (7 kW at 8 am).
         state: >-
-          {{ [ (states('sensor.sungrow_live_power_output') | float(0) / 5000 * 100) | round(0), 100 ] | min }}
-        availability: "{{ states('sensor.sungrow_live_power_output') not in ['unknown', 'unavailable'] }}"
+          {{ [ (states('sensor.sungrow_solar_only') | float(0) / 5000 * 100) | round(0), 100 ] | min }}
+        availability: "{{ has_value('sensor.sungrow_solar_only') }}"
 
   # ------------------------------------------------------------------
   # Optimizer plan status: "committed vs not". Flags when a plan contains

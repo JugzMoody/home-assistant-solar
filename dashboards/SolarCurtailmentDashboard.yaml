@@ -128,11 +128,16 @@ views:
                     ha-card {
                       text-align: center;
                     }
+              # Solar only (2026-11-21). The raw Modbus reading
+              # (sensor.sungrow_live_power_output, reg 5016) is total DC power
+              # and includes the Powerwall during a discharge/export, e.g.
+              # 7 kW at 8 am on the west array (1.6 kW solar + 5 kW battery).
+              # sungrow_solar_only = total_solar_power - fronius is clean.
               - type: markdown
                 content: |
                   Sungrow Output
 
-                  # {{ states('sensor.sungrow_live_power_output') }} W
+                  # {{ states('sensor.sungrow_solar_only') }} W
                 card_mod:
                   style: |
                     ha-card {
